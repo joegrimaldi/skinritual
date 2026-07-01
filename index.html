@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#FAF8F5" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -28,6 +28,7 @@
     background:var(--bg); color:var(--text); font-family:var(--sans);
     font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
     padding-bottom:calc(84px + env(safe-area-inset-bottom));
+    touch-action:manipulation; /* kill double-tap zoom, keep taps snappy */
   }
   .wrap{max-width:640px;margin:0 auto;padding:0 16px}
 
@@ -38,10 +39,16 @@
     border-bottom:1px solid var(--line);
     padding-top:calc(10px + env(safe-area-inset-top));
   }
+  .hrow{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
   .logo{font-family:var(--serif);font-size:30px;font-weight:500;letter-spacing:.3px;line-height:1;padding:6px 0 4px}
   .logo b{font-weight:500}
   .logo i{font-style:italic;color:var(--accent)}
   .tagline{font-size:11.5px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
+  .htools{display:flex;align-items:center;gap:8px;padding-top:8px}
+  .streakchip{display:flex;align-items:center;gap:4px;background:rgba(140,100,68,.09);color:var(--accent);font-weight:700;font-size:13px;padding:5px 11px;border-radius:var(--r-pill);white-space:nowrap}
+  .streakchip.zero{opacity:.5}
+  .updbtn{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--muted);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+  .updbtn:active{transform:rotate(180deg);transition:transform .3s}
 
   /* Bottom nav */
   nav.tabs{
@@ -190,13 +197,35 @@
   .spinner{width:22px;height:22px;border:2.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:middle}
   @keyframes spin{to{transform:rotate(360deg)}}
   .loadwrap{text-align:center;padding:60px 20px;color:var(--muted)}
+
+  /* Recap card */
+  .recap{position:fixed;inset:0;z-index:70;background:rgba(38,25,14,.42);display:none;align-items:center;justify-content:center;padding:22px;backdrop-filter:blur(2px)}
+  .recap.on{display:flex}
+  .recapcard{background:var(--bg);border-radius:22px;max-width:360px;width:100%;padding:26px 22px 22px;text-align:center;box-shadow:var(--shadow-lg);animation:pop .32s cubic-bezier(.2,.9,.3,1)}
+  @keyframes pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}
+  .recapcard .big{font-family:var(--serif);font-size:44px;font-weight:600;line-height:1;margin:2px 0 6px;color:var(--accent)}
+  .recapcard h3{font-family:var(--serif);font-size:24px;font-weight:600;margin:0 0 4px}
+  .recapcard .rsub{color:var(--muted);font-size:13.5px;margin-bottom:16px}
+  .recapstats{display:flex;gap:10px;margin-bottom:18px}
+  .rstat{flex:1;background:var(--card);border-radius:var(--r-card);padding:12px 8px;box-shadow:var(--shadow)}
+  .rstat .rv{font-family:var(--serif);font-size:24px;font-weight:600;color:var(--accent);line-height:1}
+  .rstat .rl{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-top:4px}
+  .recapcard .steps{text-align:left;font-size:12.5px;color:var(--muted);background:rgba(140,100,68,.06);border-radius:12px;padding:11px 13px;margin-bottom:16px;line-height:1.5}
 </style>
 </head>
 <body>
 <header class="app">
   <div class="wrap">
-    <div class="logo"><b>skin</b><i>ritual</i></div>
-    <div class="tagline">your shelf, your ritual</div>
+    <div class="hrow">
+      <div>
+        <div class="logo"><b>skin</b><i>ritual</i></div>
+        <div class="tagline">your shelf, your ritual</div>
+      </div>
+      <div class="htools">
+        <div class="streakchip zero" id="streakChip" title="Daily ritual streak">🔥 <span id="streakN">0</span></div>
+        <button class="updbtn" id="updBtn" title="Update to newest version" aria-label="Update">⟳</button>
+      </div>
+    </div>
   </div>
 </header>
 
@@ -262,6 +291,10 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="recap" id="recap">
+  <div class="recapcard" id="recapCard"></div>
+</div>
 
 <script>
 /* ============================ SEED DATA: 33 products ============================ */
@@ -380,7 +413,37 @@ function usesInLast7(id){
   return DB.log.filter(l=>l.ts>=wk && l.products.includes(id)).length;
 }
 function catInfo(c){ return CATS[c]||{label:c,pill:"#eee",fg:"#555",emoji:"🧴"}; }
-function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),1900); }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),3000); }
+function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||15); }catch(e){} }
+
+/* ---- streak (consecutive days with a logged ritual) ---- */
+function dayKey(ts){ const d=new Date(ts); return d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); }
+function currentStreak(){
+  const days=new Set(DB.log.map(l=>dayKey(l.ts)));
+  if(!days.size) return 0;
+  let n=0; const d=new Date();
+  if(!days.has(dayKey(d.getTime()))) d.setDate(d.getDate()-1); // today unlogged yet? don't break the streak
+  while(days.has(dayKey(d.getTime()))){ n++; d.setDate(d.getDate()-1); }
+  return n;
+}
+function refreshStreak(){
+  const n=currentStreak(); const chip=$("#streakChip");
+  if(chip){ $("#streakN").textContent=n; chip.classList.toggle("zero",n===0); }
+}
+
+/* ---- self-update: never reinstall to get a new version ---- */
+async function forceUpdate(){
+  toast("Fetching the newest version…");
+  try{
+    if("serviceWorker" in navigator){
+      const regs=await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
+  }catch(e){}
+  // cache-busting hard reload
+  location.replace(location.pathname+"?v="+Date.now());
+}
 
 /* ============================ INVENTORY VIEW ============================ */
 let filterCat="all", searchQ="";
@@ -558,8 +621,31 @@ function logRoutine(ids){
   DB.log.unshift({ts,mode:routineMode,products:ids});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p)p.lastUsed=ts; });
   save();
-  toast("Logged ✓ — actives rescheduled");
+  buzz(18);
+  refreshStreak();
+  showRecap(ids);
   renderHistory();
+}
+function showRecap(ids){
+  const streak=currentStreak();
+  const wk=DB.log.filter(l=>l.ts>=Date.now()-7*DAY).length;
+  const names=ids.map(id=>{ const p=DB.products.find(x=>x.id===id); return p?p.brand+" "+p.name:null; }).filter(Boolean);
+  const title=routineMode==="am"?"Morning ritual complete":"Evening ritual complete";
+  const flame=streak>1?"🔥":"✨";
+  const rsub=streak>1?`${streak}-day streak — keep the glow going.`:"Streak started. See you tomorrow.";
+  $("#recapCard").innerHTML=`
+    <div class="big">${flame} ${streak}</div>
+    <h3>${title}</h3>
+    <div class="rsub">${rsub}</div>
+    <div class="recapstats">
+      <div class="rstat"><div class="rv">${ids.length}</div><div class="rl">Steps</div></div>
+      <div class="rstat"><div class="rv">${streak}</div><div class="rl">Day streak</div></div>
+      <div class="rstat"><div class="rv">${wk}</div><div class="rl">This week</div></div>
+    </div>
+    <div class="steps">${names.slice(0,9).map((n,i)=>`${i+1}. ${n}`).join("<br>")}</div>
+    <button class="btn primary" id="recapClose">Done ✓</button>`;
+  $("#recap").classList.add("on");
+  $("#recapClose").onclick=()=>$("#recap").classList.remove("on");
 }
 function fillAnchor(){
   const opts=DB.products.filter(p=>p.qty>0).sort((a,b)=>a.name.localeCompare(b.name))
@@ -569,8 +655,14 @@ function fillAnchor(){
 
 /* ============================ HISTORY / SCHEDULING ============================ */
 function renderHistory(){
+  const streak=currentStreak();
+  const flame=streak>0?"🔥":"✨";
+  let s=`<div class="statcard" style="text-align:center;background:linear-gradient(135deg,#f6efe6,#efe4d5);box-shadow:none">
+    <div style="font-family:var(--serif);font-size:40px;font-weight:600;color:var(--accent);line-height:1">${flame} ${streak}</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-top:4px">${streak>1?"day ritual streak":streak===1?"day — logged today":"log a ritual to start your streak"}</div>
+  </div>`;
   const actives=DB.products.filter(p=>p.active&&p.qty>0);
-  let s=`<div class="statcard"><h4>Actives — smart scheduling</h4>`;
+  s+=`<div class="statcard"><h4>Actives — smart scheduling</h4>`;
   if(!actives.length){ s+=`<div class="sched"><span class="sname" style="color:var(--muted)">No actives in stock.</span></div>`; }
   actives.forEach(p=>{
     const avail=activeAvailable(p);
@@ -751,10 +843,12 @@ function switchView(v){
 function renderAll(){ renderInventory(); if($("#view-routine").classList.contains("on")){fillAnchor();renderRoutine();} }
 
 function init(){
-  load(); renderInventory();
+  load(); renderInventory(); refreshStreak();
   $$("nav.tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
   $("#searchIn").oninput=e=>{searchQ=e.target.value;renderInventory();};
   $("#fab").onclick=openAdd;
+  $("#updBtn").onclick=forceUpdate;
+  $("#recap").onclick=e=>{ if(e.target.id==="recap") $("#recap").classList.remove("on"); };
   $("#addModal").onclick=e=>{ if(e.target.id==="addModal") closeAdd(); };
   $$("#routineSeg .seg").forEach(b=>b.onclick=()=>{ routineMode=b.dataset.r; $$("#routineSeg .seg").forEach(x=>x.classList.toggle("on",x===b)); renderRoutine(); });
   $("#buildBtn").onclick=renderRoutine;
