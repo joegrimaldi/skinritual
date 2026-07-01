@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#FAF8F5" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="skinritual" />
+<link rel="manifest" href="manifest.webmanifest" />
+<title>skinritual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#FAF8F5; --text:#26190E; --accent:#8C6444; --muted:#A07850;
+    --card:#fff; --shadow:0 1px 8px rgba(38,25,14,.07);
+    --shadow-lg:0 6px 28px rgba(38,25,14,.14);
+    --r-card:14px; --r-btn:12px; --r-pill:20px;
+    --line:rgba(140,100,68,.16);
+    --serif:'Cormorant Garamond',Georgia,serif;
+    --sans:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
+    padding-bottom:calc(84px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:640px;margin:0 auto;padding:0 16px}
+
+  /* Header */
+  header.app{
+    position:sticky; top:0; z-index:40; background:rgba(250,248,245,.92);
+    backdrop-filter:saturate(1.4) blur(10px);
+    border-bottom:1px solid var(--line);
+    padding-top:calc(10px + env(safe-area-inset-top));
+  }
+  .logo{font-family:var(--serif);font-size:30px;font-weight:500;letter-spacing:.3px;line-height:1;padding:6px 0 4px}
+  .logo b{font-weight:500}
+  .logo i{font-style:italic;color:var(--accent)}
+  .tagline{font-size:11.5px;color:var(--muted);letter-spacing:.6px;text-transform:uppercase;margin-bottom:10px}
+
+  /* Bottom nav */
+  nav.tabs{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:rgba(255,255,255,.96);backdrop-filter:blur(12px);
+    border-top:1px solid var(--line);
+    display:flex;justify-content:space-around;
+    padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+  }
+  nav.tabs button{
+    flex:1;background:none;border:none;color:var(--muted);
+    font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.3px;
+    display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;
+    padding:4px 0;border-radius:10px;transition:color .15s;
+  }
+  nav.tabs button .ic{font-size:19px;line-height:1}
+  nav.tabs button.on{color:var(--accent)}
+
+  section.view{display:none;padding-top:14px}
+  section.view.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  h2.head{font-family:var(--serif);font-size:26px;font-weight:600;margin:2px 0 2px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:14px}
+
+  /* Controls */
+  .controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .search{flex:1;min-width:150px;position:relative}
+  .search input{
+    width:100%;padding:10px 12px 10px 34px;border:1px solid var(--line);
+    border-radius:var(--r-btn);background:var(--card);font-family:var(--sans);
+    font-size:14px;color:var(--text);
+  }
+  .search::before{content:"⌕";position:absolute;left:11px;top:8px;font-size:17px;color:var(--muted)}
+  .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    white-space:nowrap;border:1px solid var(--line);background:var(--card);
+    color:var(--muted);padding:6px 13px;border-radius:var(--r-pill);
+    font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--sans);
+  }
+  .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+  /* Inventory grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .card{
+    background:var(--card);border-radius:var(--r-card);box-shadow:var(--shadow);
+    overflow:hidden;position:relative;display:flex;flex-direction:column;
+  }
+  .card .thumb{
+    height:104px;background:linear-gradient(135deg,#f3ece3,#e9ddce);
+    display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;
+  }
+  .card .thumb img{width:100%;height:100%;object-fit:cover}
+  .card .thumb .emoji{font-size:34px;opacity:.5}
+  .card .body{padding:10px 11px 12px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .brand{font-size:10.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted)}
+  .pname{font-family:var(--serif);font-size:16px;font-weight:600;line-height:1.15;margin:-2px 0 1px}
+  .pill{display:inline-block;font-size:10px;font-weight:700;padding:2px 9px;border-radius:var(--r-pill);letter-spacing:.3px}
+  .tagrow{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:auto}
+  .ttag{font-size:10px;font-weight:600;color:var(--muted);background:rgba(140,100,68,.09);padding:2px 7px;border-radius:var(--r-pill)}
+  .qtyrow{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .qbtn{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--accent);font-size:17px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+  .qnum{font-size:13px;font-weight:700;min-width:16px;text-align:center}
+  .rm{position:absolute;top:7px;right:7px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.9);border:none;color:var(--muted);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);z-index:2}
+  .oos{position:absolute;inset:0;background:rgba(250,248,245,.72);display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-style:italic;font-size:15px;color:var(--accent);z-index:1;backdrop-filter:grayscale(.4)}
+
+  /* Buttons */
+  .btn{
+    font-family:var(--sans);font-weight:600;font-size:15px;border:none;cursor:pointer;
+    padding:14px 18px;border-radius:var(--r-btn);width:100%;transition:transform .1s,opacity .15s;
+  }
+  .btn:active{transform:scale(.985)}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.ghost{background:var(--card);color:var(--accent);border:1px solid var(--line)}
+  .btn.sm{padding:10px 14px;font-size:13.5px;width:auto}
+  .btn:disabled{opacity:.5;cursor:default}
+
+  .fab{
+    position:fixed;right:calc(50% - 320px + 16px);bottom:calc(86px + env(safe-area-inset-bottom));
+    z-index:45;background:var(--accent);color:#fff;border:none;border-radius:var(--r-pill);
+    padding:13px 20px;font-family:var(--sans);font-weight:700;font-size:14px;cursor:pointer;
+    box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:7px;
+  }
+  @media(max-width:672px){.fab{right:18px}}
+
+  /* Routine */
+  .segwrap{display:flex;background:var(--card);border:1px solid var(--line);border-radius:var(--r-btn);padding:4px;gap:4px;margin-bottom:16px}
+  .seg{flex:1;text-align:center;padding:9px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;background:none;border:none;font-family:var(--sans)}
+  .seg.on{background:var(--accent);color:#fff}
+
+  .step{background:var(--card);border-radius:var(--r-card);box-shadow:var(--shadow);padding:14px 15px;margin-bottom:11px;display:flex;gap:13px;position:relative;overflow:hidden}
+  .step .num{flex:none;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-family:var(--serif);font-weight:600;font-size:15px;display:flex;align-items:center;justify-content:center}
+  .step .sc{flex:1;min-width:0}
+  .step .verb{font-family:var(--serif);font-size:18px;font-weight:600;line-height:1.1}
+  .step .prod{font-size:13.5px;font-weight:600;color:var(--accent);margin:2px 0 4px}
+  .step .how{font-size:13px;color:var(--muted);line-height:1.4}
+  .step .meta{font-size:11.5px;color:var(--muted);margin-top:6px;display:flex;flex-wrap:wrap;gap:6px}
+  .step .meta span{background:rgba(140,100,68,.08);padding:2px 8px;border-radius:var(--r-pill)}
+  .step.tip{background:linear-gradient(135deg,#f6efe6,#efe4d5);box-shadow:none}
+  .step.tip .verb{font-style:italic}
+  .skips{background:rgba(140,100,68,.06);border-radius:var(--r-card);padding:13px 15px;margin-top:6px}
+  .skips h4{font-family:var(--serif);font-size:16px;margin:0 0 8px;font-weight:600}
+  .skips .si{font-size:12.5px;color:var(--muted);padding:4px 0;border-bottom:1px dashed var(--line)}
+  .skips .si:last-child{border:none}
+  .skips .si b{color:var(--text);font-weight:600}
+
+  .anchor{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:12px;margin-bottom:14px}
+  .anchor label{font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:7px;text-transform:uppercase;letter-spacing:.4px}
+  select,input.f{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-btn);background:var(--bg);font-family:var(--sans);font-size:14px;color:var(--text)}
+
+  /* History */
+  .statcard{background:var(--card);border-radius:var(--r-card);box-shadow:var(--shadow);padding:14px 15px;margin-bottom:11px}
+  .statcard h4{font-family:var(--serif);font-size:17px;margin:0 0 4px;font-weight:600}
+  .sched{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .sched:last-child{border:none}
+  .sched .sname{font-weight:600}
+  .sched .sbrand{font-size:11px;color:var(--muted)}
+  .status{font-size:11px;font-weight:700;padding:3px 10px;border-radius:var(--r-pill)}
+  .status.ok{background:#e6f0e2;color:#4a6b3a}
+  .status.cool{background:#f3e6d9;color:#9c6a3a}
+  .logitem{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .logitem:last-child{border:none}
+  .dots{display:flex;gap:3px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);opacity:.85}
+  .empty{text-align:center;color:var(--muted);padding:48px 20px;font-family:var(--serif);font-style:italic;font-size:17px}
+
+  /* Modal */
+  .modal{position:fixed;inset:0;z-index:60;background:rgba(38,25,14,.42);display:none;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px)}
+  .modal.on{display:flex}
+  .sheet{background:var(--bg);width:100%;max-width:640px;border-radius:22px 22px 0 0;max-height:92vh;overflow-y:auto;padding:8px 18px calc(28px + env(safe-area-inset-bottom));animation:up .28s cubic-bezier(.2,.9,.3,1)}
+  @keyframes up{from{transform:translateY(100%)}to{transform:none}}
+  .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 14px}
+  .sheet h3{font-family:var(--serif);font-size:23px;font-weight:600;margin:0 0 4px}
+  .field{margin-bottom:12px}
+  .field label{font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:5px}
+  .capmodes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+  .capmode{background:var(--card);border:1px solid var(--line);border-radius:var(--r-card);padding:14px 8px;text-align:center;cursor:pointer}
+  .capmode .ci{font-size:26px;display:block;margin-bottom:5px}
+  .capmode .ct{font-size:12px;font-weight:700}
+  .capmode .cd{font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.25}
+  #scanBox{width:100%;border-radius:var(--r-card);overflow:hidden;margin-bottom:12px;background:#000}
+  .note{font-size:12px;color:var(--muted);background:rgba(140,100,68,.07);border-radius:10px;padding:10px 12px;line-height:1.4;margin-bottom:12px}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom));background:var(--text);color:#fff;padding:11px 18px;border-radius:var(--r-pill);font-size:13px;font-weight:600;z-index:80;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%}
+  .toast.on{opacity:1}
+  .spinner{width:22px;height:22px;border:2.5px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loadwrap{text-align:center;padding:60px 20px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="app">
+  <div class="wrap">
+    <div class="logo"><b>skin</b><i>ritual</i></div>
+    <div class="tagline">your shelf, your ritual</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- INVENTORY -->
+  <section class="view on" id="view-inventory">
+    <h2 class="head">The Shelf</h2>
+    <div class="sub" id="invCount">—</div>
+    <div class="controls">
+      <div class="search"><input id="searchIn" placeholder="Search name or brand…" /></div>
+    </div>
+    <div class="chips" id="filterChips"></div>
+    <div id="invGrid" class="grid" style="margin-top:12px"></div>
+  </section>
+
+  <!-- ROUTINE -->
+  <section class="view" id="view-routine">
+    <h2 class="head">My Ritual</h2>
+    <div class="sub">Built from what's in stock — in the right order.</div>
+    <div class="segwrap" id="routineSeg">
+      <button class="seg on" data-r="am">☀️ Morning</button>
+      <button class="seg" data-r="pm">🌙 Evening</button>
+    </div>
+    <div class="anchor">
+      <label>Tonight I want to use… (optional anchor)</label>
+      <select id="anchorSel"><option value="">No anchor — build my standard ritual</option></select>
+    </div>
+    <button class="btn primary" id="buildBtn">Get My Ritual →</button>
+    <div id="routineOut" style="margin-top:16px"></div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view" id="view-history">
+    <h2 class="head">Rhythm</h2>
+    <div class="sub">Smart scheduling for your actives + what you've used.</div>
+    <div id="schedOut"></div>
+    <h3 style="font-family:var(--serif);font-size:19px;margin:20px 0 8px">Usage log</h3>
+    <div id="logOut"></div>
+  </section>
+</main>
+
+<button class="fab" id="fab">＋ Add Product</button>
+
+<nav class="tabs">
+  <button class="on" data-view="inventory"><span class="ic">🧴</span>Shelf</button>
+  <button data-view="routine"><span class="ic">✨</span>Ritual</button>
+  <button data-view="history"><span class="ic">📈</span>Rhythm</button>
+</nav>
+
+<!-- ADD MODAL -->
+<div class="modal" id="addModal">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h3>Add a product</h3>
+    <div class="sub" style="margin-bottom:14px">Scan a barcode, look it up, or type it in.</div>
+    <div class="capmodes">
+      <div class="capmode" data-mode="scan"><span class="ci">📷</span><span class="ct">Scan</span><div class="cd">Barcode / SKU</div></div>
+      <div class="capmode" data-mode="ai"><span class="ci">✨</span><span class="ct">AI Photo</span><div class="cd">Snap the label</div></div>
+      <div class="capmode" data-mode="manual"><span class="ci">✏️</span><span class="ct">Manual</span><div class="cd">Type it in</div></div>
+    </div>
+    <div id="capBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================ SEED DATA: 33 products ============================ */
+const CATS = {
+  cleanser:{label:"Cleanser",pill:"#e7dccd",fg:"#6b5334",emoji:"🫧"},
+  toner:{label:"Toner",pill:"#dfe8de",fg:"#4a6b3a",emoji:"💧"},
+  serum:{label:"Serum",pill:"#e3ddef",fg:"#5b4a7a",emoji:"🧪"},
+  eye_cream:{label:"Eye Cream",pill:"#f0e2d9",fg:"#8a5a3a",emoji:"👁️"},
+  moisturizer:{label:"Moisturizer",pill:"#f3e9d9",fg:"#8a6a2a",emoji:"🌸"},
+  night_cream:{label:"Night Cream",pill:"#dde1ef",fg:"#4a527a",emoji:"🌙"},
+  sunscreen:{label:"SPF",pill:"#fdeecb",fg:"#a67a1a",emoji:"☀️"},
+  exfoliant:{label:"Exfoliant",pill:"#f2dede",fg:"#8a3a4a",emoji:"✨"},
+  spot:{label:"Spot Treat",pill:"#f4dcd0",fg:"#9c5a3a",emoji:"🎯"},
+  mask:{label:"Mask",pill:"#e3ded4",fg:"#6b5a34",emoji:"🎭"},
+  sheet_mask:{label:"Sheet Mask",pill:"#e8e0ec",fg:"#6a4a7a",emoji:"🍃"},
+  retinol:{label:"Retinol",pill:"#efdbd0",fg:"#8a4a2a",emoji:"🌀"}
+};
+
+// step_order: 1 cleanse, 2 tone, 3 treat/serum, 4 eye, 5 moisturize, 6 spf; masks=0 (special)
+const SEED = [
+ {id:1,name:"Zero Pore Cream 2.0",brand:"Medicube",cat:"moisturizer",am:1,pm:1,freq:"Daily",step:5,cd:0,max:0},
+ {id:2,name:"Zero Pore Blackhead Mud Mask",brand:"Medicube",cat:"mask",am:0,pm:1,freq:"Weekly",step:0,cd:7,max:1},
+ {id:3,name:"Hypochlorous Acid Daily Facial Spray",brand:"Medicube",cat:"toner",am:1,pm:1,freq:"Daily",step:2,cd:0,max:0},
+ {id:4,name:"Hypochlorous Acid Peel Mask",brand:"Medicube",cat:"mask",am:0,pm:1,freq:"Weekly",step:0,cd:7,max:1},
+ {id:5,name:"Oil Cleansing for Sensitive Skin",brand:"MUJI",cat:"cleanser",am:0,pm:1,freq:"Daily",step:1,cd:0,max:0,oil:1},
+ {id:6,name:"Foaming Face Soap Sensitive Skin",brand:"MUJI",cat:"cleanser",am:1,pm:1,freq:"Daily",step:1,cd:0,max:0},
+ {id:7,name:"Ultra Facial Oil-Free Lotion",brand:"Kiehl's",cat:"moisturizer",am:1,pm:1,freq:"Daily",step:5,cd:0,max:0,light:1},
+ {id:8,name:"Madagascar Centella Ampoule Foam",brand:"Skin1004",cat:"cleanser",am:1,pm:1,freq:"Daily",step:1,cd:0,max:0,fav:1},
+ {id:9,name:"Madagascar Centella Ampoule",brand:"Skin1004",cat:"serum",am:1,pm:1,freq:"Daily",step:3,cd:0,max:0,hydra:1},
+ {id:10,name:"Lavender & Manuka Honey Balancing Mist",brand:"Naturopathica",cat:"toner",am:1,pm:1,freq:"Daily",step:2,cd:0,max:0},
+ {id:11,name:"Hydrating Milky Toner",brand:"Thayers",cat:"toner",am:1,pm:1,freq:"Daily",step:2,cd:0,max:0},
+ {id:12,name:"Oil Eliminator Shine Control Toner",brand:"Kiehl's",cat:"toner",am:1,pm:1,freq:"Daily",step:2,cd:0,max:0},
+ {id:13,name:"Every Sun Day SPF 50+ Sun Fluid",brand:"Dr. Jart+",cat:"sunscreen",am:1,pm:0,freq:"Daily",step:6,cd:0,max:0,fav:1},
+ {id:14,name:"Daily Prevention Mineral SPF 30",brand:"Image Skincare",cat:"sunscreen",am:1,pm:0,freq:"Daily",step:6,cd:0,max:0},
+ {id:15,name:"Tone Blur Essence Sunscreen SPF 50+",brand:"Dearcloud",cat:"sunscreen",am:1,pm:0,freq:"Daily",step:6,cd:0,max:0},
+ {id:16,name:"Blue Herbal Spot Treatment",brand:"Kiehl's",cat:"spot",am:0,pm:1,freq:"As needed",step:3,cd:0,max:0},
+ {id:17,name:"PRID Pain Relief & Drawing Salve",brand:"Hyland's",cat:"spot",am:0,pm:1,freq:"As needed",step:3,cd:0,max:0},
+ {id:18,name:"Hydro-Stars Pimple Patches",brand:"Starface",cat:"spot",am:1,pm:1,freq:"As needed",step:3,cd:0,max:0},
+ {id:19,name:"Retinol Skin-Renewing Micro-Dose Serum",brand:"Kiehl's",cat:"retinol",am:0,pm:1,freq:"3-4x/week",step:3,cd:2,max:4,active:1},
+ {id:20,name:"Hyaluronic Sea Serum",brand:"OSEA",cat:"serum",am:1,pm:1,freq:"Daily",step:3,cd:0,max:0,hydra:1},
+ {id:21,name:"Bright Eyes Dark Circle Concentrate",brand:"Goldfaden MD",cat:"eye_cream",am:1,pm:1,freq:"Daily",step:4,cd:0,max:0},
+ {id:22,name:"Wake Up Call Overnight Treatment",brand:"Goldfaden MD",cat:"night_cream",am:0,pm:1,freq:"Nightly",step:5,cd:0,max:0},
+ {id:23,name:"Dream Cream Nighttime Moisturizer",brand:"Onekind",cat:"night_cream",am:0,pm:1,freq:"Nightly",step:5,cd:0,max:0},
+ {id:24,name:"Vital C Hydrating Enzyme Masque",brand:"Image Skincare",cat:"mask",am:0,pm:1,freq:"Weekly",step:0,cd:7,max:1},
+ {id:25,name:"Tightening Detox Mask",brand:"Dr. Loretta",cat:"mask",am:0,pm:1,freq:"Weekly",step:0,cd:7,max:1},
+ {id:26,name:"Peel Shot Black Rice Ampoule",brand:"Dr. Melaxin",cat:"exfoliant",am:0,pm:1,freq:"2-3x/week",step:3,cd:2,max:3,active:1},
+ {id:27,name:"Peel Shot White Rice Ampoule",brand:"Dr. Melaxin",cat:"exfoliant",am:0,pm:1,freq:"2-3x/week",step:3,cd:2,max:3,active:1},
+ {id:28,name:"Polishing Facial Exfoliant",brand:"Grown Alchemist",cat:"exfoliant",am:1,pm:1,freq:"2-3x/week",step:3,cd:2,max:3,active:1},
+ {id:29,name:"Pearl Milk Tea Nutrition Mask",brand:"Smoko",cat:"sheet_mask",am:0,pm:1,freq:"As desired",step:0,cd:3,max:0,calming:1},
+ {id:30,name:"I'm Honey Nourishing Mask Sheet",brand:"Tony Moly",cat:"sheet_mask",am:0,pm:1,freq:"As desired",step:0,cd:3,max:0,calming:1},
+ {id:31,name:"I'm Green Tea Purifying Mask Sheet",brand:"Tony Moly",cat:"sheet_mask",am:0,pm:1,freq:"As desired",step:0,cd:3,max:0},
+ {id:32,name:"I'm Rice Clear Skin Mask Sheet",brand:"Tony Moly",cat:"sheet_mask",am:0,pm:1,freq:"As desired",step:0,cd:3,max:0},
+ {id:33,name:"I'm Lavender Hydrating Mask Sheet",brand:"Tony Moly",cat:"sheet_mask",am:0,pm:1,freq:"As desired",step:0,cd:3,max:0,calming:1},
+];
+
+/* Per-product usage instructions (verb + how). Fallback derives from category. */
+const HOWTO = {
+  1:["Moisturize","Smooth over face and neck to seal in hydration."],
+  3:["Tone","Mist 6–8″ from face; let it settle, no cotton pad."],
+  5:["Oil cleanse","Massage onto DRY skin 60s to melt sunscreen & sebum, then rinse."],
+  6:["Second cleanse","Lather on damp skin, focus on the T-zone, rinse warm."],
+  7:["Moisturize","Lightest texture — press a thin layer in; best under SPF/makeup."],
+  8:["Cleanse","Work into a soft foam on damp skin, rinse. AM: single cleanse only."],
+  9:["Serum","Pat a few drops into slightly damp skin."],
+  10:["Tone","Spritz to balance and calm before serums."],
+  11:["Tone","Sweep on with hands to add a milky hydration layer."],
+  12:["Tone","Use on oily zones to control shine."],
+  13:["SPF","Two fingers' worth, last step. Wait 2–3 min before sun/makeup."],
+  14:["SPF","Mineral shield — apply generously as the final AM step."],
+  15:["SPF","Blurring SPF finish; apply last, reapply through the day."],
+  16:["Spot treat","Dab a thin layer directly on the blemish."],
+  17:["Draw out","Dot on the clog to draw it up — pairs with a patch overnight."],
+  18:["Patch","Press a star over the spot; wear overnight to pull it flat."],
+  19:["Retinol","Pea-size on dry skin. PM only, never with a strong exfoliant."],
+  20:["Hydrate","Press the sea serum into damp skin for a plump base."],
+  21:["Eye cream","Tap a rice-grain amount around the orbital bone."],
+  22:["Night treat","Massage in as your final PM step to work overnight."],
+  23:["Night cream","Layer on as a rich overnight moisturizer."],
+  24:["Enzyme mask","Apply to clean skin 10–15 min, rinse. Great glow reset."],
+  25:["Detox mask","Apply a thin coat, leave 10 min, rinse — tightening."],
+  26:["Exfoliate","Black rice peel — press in on the nights you're not doing retinol."],
+  27:["Exfoliate","White rice peel — gentle resurfacing, alternate with retinol nights."],
+  28:["Polish","Massage the grains gently, rinse. Not the same night as retinol."],
+};
+
+const CD_NOTE = {19:"max 4×/week",26:"max 3×/week",27:"max 3×/week",28:"max 3×/week"};
+
+/* ============================ STORAGE ============================ */
+const KEY="skinritual-v2";
+let DB={products:[],log:[],ver:2};
+
+function load(){
+  try{
+    const raw=localStorage.getItem(KEY);
+    if(raw){DB=JSON.parse(raw);}
+    else{ seedFresh(); }
+  }catch(e){ seedFresh(); }
+  // migrate: ensure every seed exists
+  if(!DB.products||!DB.products.length) seedFresh();
+  if(!DB.log) DB.log=[];
+}
+function seedFresh(){
+  DB={ver:2,log:[],products:SEED.map(p=>({...p,qty:1,lastUsed:null,custom:false}))};
+  save();
+}
+function save(){ try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){} }
+function meta(id){ return SEED.find(s=>s.id===id) || DB.products.find(p=>p.id===id); }
+
+/* ============================ HELPERS ============================ */
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+const DAY=864e5;
+function daysSince(ts){ return ts?Math.floor((Date.now()-ts)/DAY):Infinity; }
+function usesInLast7(id){
+  const wk=Date.now()-7*DAY;
+  return DB.log.filter(l=>l.ts>=wk && l.products.includes(id)).length;
+}
+function catInfo(c){ return CATS[c]||{label:c,pill:"#eee",fg:"#555",emoji:"🧴"}; }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),1900); }
+
+/* ============================ INVENTORY VIEW ============================ */
+let filterCat="all", searchQ="";
+function renderChips(){
+  const cats=["all",...Object.keys(CATS).filter(k=>DB.products.some(p=>p.cat===k))];
+  const labels={all:"All"};
+  $("#filterChips").innerHTML=cats.map(c=>{
+    const lab=c==="all"?"All":catInfo(c).label;
+    return `<button class="chip ${c===filterCat?'on':''}" data-c="${c}">${lab}</button>`;
+  }).join("");
+  $$("#filterChips .chip").forEach(b=>b.onclick=()=>{filterCat=b.dataset.c;renderInventory();});
+}
+function renderInventory(){
+  renderChips();
+  const q=searchQ.toLowerCase();
+  const list=DB.products.filter(p=>{
+    if(filterCat!=="all"&&p.cat!==filterCat) return false;
+    if(q&&!(p.name.toLowerCase().includes(q)||p.brand.toLowerCase().includes(q))) return false;
+    return true;
+  });
+  const inStock=DB.products.filter(p=>p.qty>0).length;
+  $("#invCount").textContent=`${DB.products.length} products · ${inStock} in stock`;
+  if(!list.length){ $("#invGrid").innerHTML=`<div class="empty" style="grid-column:1/-1">Nothing here yet.</div>`; return; }
+  $("#invGrid").innerHTML=list.map(p=>{
+    const ci=catInfo(p.cat);
+    const tags=[];
+    if(p.am) tags.push('<span class="ttag">☀️ AM</span>');
+    if(p.pm) tags.push('<span class="ttag">🌙 PM</span>');
+    if(p.freq&&!/daily/i.test(p.freq)) tags.push(`<span class="ttag">${p.freq}</span>`);
+    const img=p.img?`<img src="${p.img}" alt="">`:`<span class="emoji">${ci.emoji}</span>`;
+    return `<div class="card">
+      <button class="rm" data-rm="${p.id}">✕</button>
+      <div class="thumb">${img}${p.qty<=0?'<div class="oos">out of stock</div>':''}</div>
+      <div class="body">
+        <div class="brand">${p.brand}</div>
+        <div class="pname">${p.name}</div>
+        <div><span class="pill" style="background:${ci.pill};color:${ci.fg}">${ci.label}</span></div>
+        <div class="tagrow">${tags.join("")}</div>
+        <div class="qtyrow">
+          <button class="qbtn" data-dec="${p.id}">−</button>
+          <span class="qnum">${p.qty}</span>
+          <button class="qbtn" data-inc="${p.id}">+</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  $$("[data-inc]").forEach(b=>b.onclick=()=>{ chg(+b.dataset.inc,1); });
+  $$("[data-dec]").forEach(b=>b.onclick=()=>{ chg(+b.dataset.dec,-1); });
+  $$("[data-rm]").forEach(b=>b.onclick=()=>{ removeProd(+b.dataset.rm); });
+}
+function chg(id,d){ const p=DB.products.find(x=>x.id===id); if(!p)return; p.qty=Math.max(0,p.qty+d); save(); renderInventory(); }
+function removeProd(id){ const p=DB.products.find(x=>x.id===id); if(!p)return; if(confirm(`Remove ${p.name} from your shelf?`)){ DB.products=DB.products.filter(x=>x.id!==id); save(); renderInventory(); toast("Removed"); } }
+
+/* ============================ ROUTINE BUILDER ============================ */
+let routineMode="am";
+function inStock(pred){ return DB.products.filter(p=>p.qty>0&&pred(p)); }
+function pick(pred,rank){ let c=inStock(pred); if(rank)c=c.sort(rank); return c[0]; }
+
+function activeAvailable(p){
+  if(daysSince(p.lastUsed)<p.cd) return false;              // cooldown
+  if(p.max&&usesInLast7(p.id)>=p.max) return false;         // weekly cap
+  return true;
+}
+
+function buildRoutine(anchorId){
+  const steps=[]; const skips=[];
+  const used=new Set();
+  const add=(p,verbHow,extraMeta)=>{ if(!p||used.has(p.id))return; used.add(p.id);
+    const [v,h]=verbHow||HOWTO[p.id]||[catInfo(p.cat).label,"Apply as directed."];
+    steps.push({p,verb:v,how:h,meta:extraMeta||[]}); };
+
+  const anchor = anchorId?DB.products.find(p=>p.id===anchorId):null;
+
+  if(routineMode==="am"){
+    add(pick(p=>p.am&&p.cat==="cleanser",(a,b)=>(b.fav?1:0)-(a.fav?1:0)),null);
+    add(pick(p=>p.am&&p.cat==="toner",(a,b)=>(a.brand==="Medicube"?-1:0)),null);
+    // hydrating serums (no actives in AM)
+    inStock(p=>p.am&&p.cat==="serum").forEach(p=>add(p,null));
+    add(pick(p=>p.am&&p.cat==="eye_cream"),null);
+    add(pick(p=>p.am&&p.cat==="moisturizer",(a,b)=>(b.light?1:0)-(a.light?1:0)),null);
+    add(pick(p=>p.am&&p.cat==="sunscreen",(a,b)=>(b.fav?1:0)-(a.fav?1:0)),null,["always last · wait 2–3 min"]);
+    // note AM skips actives
+    inStock(p=>p.active).forEach(p=>skips.push({p,why:"No actives in the morning — actives are PM only."}));
+    if(anchor&&anchor.pm&&!anchor.am) skips.push({p:anchor,why:"This is an evening product — switch to the Evening ritual to use it."});
+  } else {
+    // anchor: if it's a mask, feature it first
+    let anchorIsMask = anchor && (anchor.cat==="mask"||anchor.cat==="sheet_mask");
+    if(anchorIsMask){
+      add(pick(p=>p.oil),["Oil cleanse","Prep skin so the mask can work — massage on dry skin, rinse."]);
+      add(pick(p=>p.cat==="cleanser"&&!p.oil,(a,b)=>(b.fav?1:0)-(a.fav?1:0)),null);
+      add(anchor,[anchor.cat==="mask"?"Mask (anchor)":"Sheet mask (anchor)", HOWTO[anchor.id]?HOWTO[anchor.id][1]:"Apply, leave on, then remove/rinse."]);
+      add(pick(p=>p.cat==="toner",(a,b)=>(a.brand==="Medicube"?-1:0)),null);
+      inStock(p=>p.hydra).forEach(p=>add(p,null));
+      add(pick(p=>p.cat==="eye_cream"),null);
+      add(pick(p=>p.cat==="night_cream")||pick(p=>p.pm&&p.cat==="moisturizer"),null);
+    } else {
+      add(pick(p=>p.oil),null);
+      add(pick(p=>p.cat==="cleanser"&&!p.oil,(a,b)=>(b.fav?1:0)-(a.fav?1:0)),null);
+      add(pick(p=>p.pm&&p.cat==="toner",(a,b)=>(a.brand==="Medicube"?-1:0)),null);
+
+      // ACTIVE step — anchor overrides, else smart schedule
+      let active=null;
+      if(anchor&&anchor.active&&anchor.qty>0){ active=anchor; }
+      else {
+        const cands=inStock(p=>p.active&&activeAvailable(p))
+          .sort((a,b)=>daysSince(b.lastUsed)-daysSince(a.lastUsed)); // most overdue first
+        active=cands[0]||null;
+      }
+      if(active){
+        const m=[]; if(CD_NOTE[active.id])m.push(CD_NOTE[active.id]);
+        m.push(active.cat==="retinol"?"retinol night":"exfoliation night");
+        add(active,null,m);
+        // conflicts: other actives skipped
+        inStock(p=>p.active&&p.id!==active.id).forEach(p=>{
+          const why = (active.cat==="retinol"&&p.cat==="exfoliant")||(active.cat==="exfoliant"&&p.cat==="retinol")
+            ? "Don't layer with tonight's active — alternate on separate nights."
+            : "One active per night is plenty.";
+          skips.push({p,why});
+        });
+      } else {
+        inStock(p=>p.active).forEach(p=>{
+          const dLeft=Math.max(0,p.cd-daysSince(p.lastUsed));
+          const capped=p.max&&usesInLast7(p.id)>=p.max;
+          skips.push({p,why:capped?`Weekly limit reached (${CD_NOTE[p.id]||p.freq}).`:`On cooldown — available in ${dLeft} day${dLeft===1?'':'s'}.`});
+        });
+      }
+      // hydrating serums always
+      inStock(p=>p.pm&&p.hydra).forEach(p=>add(p,null));
+      // spot treatments if anchored
+      if(anchor&&anchor.cat==="spot") add(anchor,null);
+      add(pick(p=>p.pm&&p.cat==="eye_cream"),null);
+      add(pick(p=>p.cat==="night_cream",(a,b)=>0)||pick(p=>p.pm&&p.cat==="moisturizer"),null);
+    }
+  }
+
+  // renumber & pro tip
+  steps.forEach((s,i)=>s.n=i+1);
+  return {steps,skips};
+}
+
+function renderRoutine(){
+  const anchorId=+$("#anchorSel").value||null;
+  const {steps,skips}=buildRoutine(anchorId);
+  let html="";
+  if(!steps.length){ $("#routineOut").innerHTML=`<div class="empty">Nothing in stock for this ritual. Restock on the Shelf tab.</div>`; return; }
+  html+=steps.map(s=>{
+    const ci=catInfo(s.p.cat);
+    const metaTags=[`<span>${ci.label}</span>`,...s.meta.map(m=>`<span>${m}</span>`)];
+    return `<div class="step">
+      <div class="num">${s.n}</div>
+      <div class="sc">
+        <div class="verb">${s.verb}</div>
+        <div class="prod">${s.p.brand} · ${s.p.name}</div>
+        <div class="how">${s.how}</div>
+        <div class="meta">${metaTags.join("")}</div>
+      </div></div>`;
+  }).join("");
+
+  // pro tip
+  const tip = routineMode==="am"
+    ? "Apply serums to slightly damp skin, and give SPF 2–3 minutes to set before makeup or heading out."
+    : "Wait a beat between actives and moisturizer so nothing pills. On clog nights: mud mask → peel mask → PRID + Starface overnight.";
+  html+=`<div class="step tip"><div class="num">✦</div><div class="sc"><div class="verb">Pro tip</div><div class="how">${tip}</div></div></div>`;
+
+  if(skips.length){
+    html+=`<div class="skips"><h4>Skipped tonight</h4>`+
+      skips.map(s=>`<div class="si"><b>${s.p.brand} ${s.p.name}</b> — ${s.why}</div>`).join("")+`</div>`;
+  }
+  html+=`<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${routineMode==='am'?'morning':'evening'}</button>`;
+  $("#routineOut").innerHTML=html;
+  $("#logBtn").onclick=()=>logRoutine(steps.map(s=>s.p.id));
+}
+function logRoutine(ids){
+  const ts=Date.now();
+  DB.log.unshift({ts,mode:routineMode,products:ids});
+  ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p)p.lastUsed=ts; });
+  save();
+  toast("Logged ✓ — actives rescheduled");
+  renderHistory();
+}
+function fillAnchor(){
+  const opts=DB.products.filter(p=>p.qty>0).sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p=>`<option value="${p.id}">${p.brand} — ${p.name}</option>`).join("");
+  $("#anchorSel").innerHTML=`<option value="">No anchor — build my standard ritual</option>`+opts;
+}
+
+/* ============================ HISTORY / SCHEDULING ============================ */
+function renderHistory(){
+  const actives=DB.products.filter(p=>p.active&&p.qty>0);
+  let s=`<div class="statcard"><h4>Actives — smart scheduling</h4>`;
+  if(!actives.length){ s+=`<div class="sched"><span class="sname" style="color:var(--muted)">No actives in stock.</span></div>`; }
+  actives.forEach(p=>{
+    const avail=activeAvailable(p);
+    const dLeft=Math.max(0,p.cd-daysSince(p.lastUsed));
+    const capped=p.max&&usesInLast7(p.id)>=p.max;
+    let label,cls;
+    if(avail){label="Ready tonight";cls="ok";}
+    else if(capped){label=`Weekly max hit`;cls="cool";}
+    else {label=`In ${dLeft}d`;cls="cool";}
+    s+=`<div class="sched"><div><div class="sname">${p.name}</div><div class="sbrand">${p.brand} · ${CD_NOTE[p.id]||p.freq}</div></div><span class="status ${cls}">${label}</span></div>`;
+  });
+  s+=`</div>`;
+
+  // weekly active count
+  const wkUses=DB.log.filter(l=>l.ts>=Date.now()-7*DAY).length;
+  s+=`<div class="statcard"><h4>This week</h4><div class="sched"><span class="sname">Rituals logged</span><span class="status ok">${wkUses}</span></div></div>`;
+  $("#schedOut").innerHTML=s;
+
+  if(!DB.log.length){ $("#logOut").innerHTML=`<div class="empty">No rituals logged yet. Build one on the Ritual tab and tap “Log”.</div>`; return; }
+  $("#logOut").innerHTML=DB.log.slice(0,40).map(l=>{
+    const d=new Date(l.ts);
+    const when=d.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" · "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+    const dots=l.products.slice(0,10).map(()=>`<span class="dot"></span>`).join("");
+    return `<div class="logitem"><div><b>${l.mode==='am'?'☀️ Morning':'🌙 Evening'}</b> · <span style="color:var(--muted)">${when}</span><br><span style="color:var(--muted);font-size:12px">${l.products.length} products</span></div><div class="dots">${dots}</div></div>`;
+  }).join("");
+}
+
+/* ============================ ADD PRODUCT ============================ */
+let scanner=null;
+function openAdd(){ $("#addModal").classList.add("on"); showCap("scan"); }
+function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
+function stopScan(){ if(scanner){ try{scanner.clear();}catch(e){} scanner=null; } }
+
+function showCap(mode){
+  stopScan();
+  $$(".capmode").forEach(c=>c.style.borderColor=c.dataset.mode===mode?"var(--accent)":"var(--line)");
+  const b=$("#capBody");
+  if(mode==="manual"){ b.innerHTML=manualForm(); wireManual(); }
+  else if(mode==="scan"){ b.innerHTML=`
+      <div class="note">Point your camera at the product barcode. We'll look it up in the open beauty-products database and pre-fill the form. No barcode? Use Manual.</div>
+      <div id="scanBox"></div>
+      <div id="scanStatus" style="text-align:center;color:var(--muted);font-size:13px;min-height:20px"></div>`;
+      startScan();
+  }
+  else if(mode==="ai"){ b.innerHTML=aiForm(); wireAI(); }
+}
+function manualForm(pref={}){
+  const catOpts=Object.keys(CATS).filter(k=>CATS[k].label).map(k=>`<option value="${k}" ${pref.cat===k?'selected':''}>${CATS[k].label}</option>`).join("");
+  return `
+  <div class="field"><label>Product name</label><input class="f" id="mName" value="${pref.name||''}" placeholder="e.g. Centella Ampoule"></div>
+  <div class="field"><label>Brand</label><input class="f" id="mBrand" value="${pref.brand||''}" placeholder="e.g. Skin1004"></div>
+  <div class="field"><label>Category</label><select id="mCat">${catOpts}</select></div>
+  <div class="field"><label>When</label><select id="mWhen">
+    <option value="both">Morning & Evening</option><option value="am">Morning only</option><option value="pm">Evening only</option></select></div>
+  <div class="field"><label>Frequency</label><select id="mFreq">
+    <option>Daily</option><option>2-3x/week</option><option>3-4x/week</option><option>Weekly</option><option>As needed</option></select></div>
+  <label style="font-size:12px;font-weight:600;color:var(--muted);display:flex;gap:8px;align-items:center;margin-bottom:14px">
+    <input type="checkbox" id="mActive" style="width:auto"> This is an active (retinol / acid / exfoliant — schedule with cooldowns)</label>
+  <button class="btn primary" id="mSave">Add to My Shelf →</button>`;
+}
+function wireManual(){
+  $("#mSave").onclick=()=>{
+    const name=$("#mName").value.trim(); if(!name){toast("Add a product name");return;}
+    const when=$("#mWhen").value, cat=$("#mCat").value;
+    const active=$("#mActive").checked;
+    const stepMap={cleanser:1,toner:2,serum:3,retinol:3,exfoliant:3,spot:3,eye_cream:4,moisturizer:5,night_cream:5,sunscreen:6,mask:0,sheet_mask:0};
+    const p={
+      id:Date.now(), name, brand:$("#mBrand").value.trim()||"—", cat,
+      am:when!=="pm"?1:0, pm:when!=="am"?1:0, freq:$("#mFreq").value,
+      step:stepMap[cat]??3, cd:active?2:0, max:active?4:0, active:active?1:0,
+      hydra:cat==="serum"?1:0, qty:1, lastUsed:null, custom:true
+    };
+    DB.products.push(p); save(); renderAll(); closeAdd(); toast(`Added ${name} ✓`);
+  };
+}
+function aiForm(){
+  const savedKey=localStorage.getItem("skinritual-key")||"";
+  return `
+  <div class="note">Snap a photo of the label and let Claude read it. Needs your own Anthropic API key (stored only on this device). No key? Use Scan or Manual — both work with zero setup.</div>
+  <div class="field"><label>Anthropic API key</label><input class="f" id="aiKey" type="password" value="${savedKey}" placeholder="sk-ant-…"></div>
+  <div class="field"><label>Product photo</label><input class="f" id="aiFile" type="file" accept="image/*" capture="environment"></div>
+  <button class="btn primary" id="aiGo">Identify with AI →</button>
+  <div id="aiOut" style="margin-top:14px"></div>`;
+}
+function wireAI(){
+  $("#aiGo").onclick=async()=>{
+    const key=$("#aiKey").value.trim(); const f=$("#aiFile").files[0];
+    if(!key){toast("Enter your API key");return;}
+    if(!f){toast("Choose a photo");return;}
+    localStorage.setItem("skinritual-key",key);
+    $("#aiOut").innerHTML=`<div class="loadwrap"><span class="spinner"></span><div style="margin-top:10px">Reading the label…</div></div>`;
+    try{
+      const b64=await fileToB64(f);
+      const profile=await aiIdentify(key,b64,f.type||"image/jpeg");
+      $("#capBody").innerHTML=manualForm(profile); wireManual();
+      // preselect when + freq
+      if(profile.when&&$("#mWhen")) $("#mWhen").value=profile.when;
+      if(profile.freq&&$("#mFreq")) [...$("#mFreq").options].forEach(o=>{if(o.value.toLowerCase()===String(profile.freq).toLowerCase())o.selected=true;});
+      if(profile.active&&$("#mActive")) $("#mActive").checked=true;
+      toast("Label read — review & save");
+    }catch(e){
+      $("#aiOut").innerHTML=`<div class="note" style="color:#9c3a3a">Couldn't identify automatically (${e.message||'error'}). Switch to Manual or Scan instead.</div>`;
+    }
+  };
+}
+function fileToB64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(f);});}
+async function aiIdentify(key,b64,mime){
+  // single vision call → structured JSON (no tools; works from browser)
+  const body={
+    model:"claude-opus-4-8",max_tokens:700,
+    messages:[{role:"user",content:[
+      {type:"image",source:{type:"base64",media_type:mime,data:b64}},
+      {type:"text",text:`Identify this skincare product from its label. Return ONLY JSON:
+{"name":"","brand":"","cat":"cleanser|toner|serum|retinol|exfoliant|spot|eye_cream|moisturizer|night_cream|sunscreen|mask|sheet_mask","when":"am|pm|both","freq":"Daily|2-3x/week|3-4x/week|Weekly|As needed","active":true|false}
+Rules: retinol/AHA/BHA/acids => active:true, when:"pm". SPF => sunscreen, when:"am". Only output the JSON object.`}
+    ]}]
+  };
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error("API "+r.status);
+  const data=await r.json();
+  const text=(data.content||[]).map(c=>c.text||"").join("");
+  const m=text.replace(/```json|```/gi,"").trim().match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("no JSON");
+  return JSON.parse(m[0]);
+}
+
+/* Barcode scan via html5-qrcode (loaded lazily) */
+function startScan(){
+  const status=$("#scanStatus");
+  const go=()=>{
+    try{
+      scanner=new Html5Qrcode("scanBox");
+      scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:150}},
+        code=>{ status.textContent="Found "+code+" — looking up…"; stopScan(); lookupBarcode(code); },
+        ()=>{});
+    }catch(e){ status.innerHTML=`Camera unavailable. <a href="#" id="toManual" style="color:var(--accent)">Enter manually →</a>`; if($("#toManual"))$("#toManual").onclick=e2=>{e2.preventDefault();showCap("manual");}; }
+  };
+  if(window.Html5Qrcode){go();}
+  else{
+    status.textContent="Loading scanner…";
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+    s.onload=go; s.onerror=()=>{status.innerHTML=`Scanner failed to load. <a href="#" id="toManual2" style="color:var(--accent)">Enter manually →</a>`; if($("#toManual2"))$("#toManual2").onclick=e=>{e.preventDefault();showCap("manual");};};
+    document.head.appendChild(s);
+  }
+}
+async function lookupBarcode(code){
+  const status=$("#scanStatus"); status.innerHTML='<span class="spinner"></span> Looking up '+code+'…';
+  try{
+    const r=await fetch(`https://world.openbeautyfacts.org/api/v2/product/${code}.json`);
+    const d=await r.json();
+    if(d.status===1&&d.product){
+      const p=d.product;
+      const pref={ name:p.product_name||p.generic_name||"", brand:(p.brands||"").split(",")[0].trim() };
+      $("#capBody").innerHTML=manualForm(pref); wireManual();
+      toast("Found — review & save");
+    } else { throw new Error("not found"); }
+  }catch(e){
+    status.innerHTML=`Not in the database. <a href="#" id="toManual3" style="color:var(--accent)">Enter it manually →</a> <a href="#" id="rescan" style="color:var(--accent);margin-left:10px">Rescan</a>`;
+    if($("#toManual3"))$("#toManual3").onclick=ev=>{ev.preventDefault();showCap("manual");};
+    if($("#rescan"))$("#rescan").onclick=ev=>{ev.preventDefault();showCap("scan");};
+  }
+}
+
+/* ============================ NAV + INIT ============================ */
+function switchView(v){
+  $$(".view").forEach(s=>s.classList.toggle("on",s.id==="view-"+v));
+  $$("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  $("#fab").style.display = v==="inventory"?"flex":"none";
+  if(v==="routine"){ fillAnchor(); renderRoutine(); }
+  if(v==="history") renderHistory();
+  window.scrollTo(0,0);
+}
+function renderAll(){ renderInventory(); if($("#view-routine").classList.contains("on")){fillAnchor();renderRoutine();} }
+
+function init(){
+  load(); renderInventory();
+  $$("nav.tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+  $("#searchIn").oninput=e=>{searchQ=e.target.value;renderInventory();};
+  $("#fab").onclick=openAdd;
+  $("#addModal").onclick=e=>{ if(e.target.id==="addModal") closeAdd(); };
+  $$("#routineSeg .seg").forEach(b=>b.onclick=()=>{ routineMode=b.dataset.r; $$("#routineSeg .seg").forEach(x=>x.classList.toggle("on",x===b)); renderRoutine(); });
+  $("#buildBtn").onclick=renderRoutine;
+  $("#anchorSel").onchange=renderRoutine;
+  $$(".capmode").forEach(c=>c.onclick=()=>showCap(c.dataset.mode));
+  // service worker
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+}
+document.addEventListener("DOMContentLoaded",init);
+</script>
+</body>
+</html>
