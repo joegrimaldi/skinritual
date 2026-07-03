@@ -248,6 +248,7 @@
   .rsteps .s b{color:var(--muted);font-weight:600}
 
   .bootskel{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+  .appfoot{text-align:center;color:var(--muted);font-size:11px;letter-spacing:.4px;opacity:.65;padding:22px 0 6px}
 </style>
 </head>
 <body>
@@ -303,6 +304,7 @@
     <div class="sub">Streak, active scheduling, and history.</div>
     <div id="rhythmOut"></div>
   </section>
+  <footer class="appfoot" id="appFoot"></footer>
 </main>
 
 <nav class="tabs">
@@ -340,6 +342,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
+const APP_VERSION = "v10";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -1138,6 +1141,7 @@ function switchView(v){
 function init(){
   load();
   $("#boot").style.display="none";
+  if($("#appFoot")) $("#appFoot").textContent=`skinritual · ${APP_VERSION}`;
   refreshStreak();
   renderChips(); renderShelf();
 
