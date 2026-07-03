@@ -79,6 +79,8 @@
   @keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
   h2.head{font-family:var(--serif);font-size:27px;font-weight:600;margin:2px 0}
   .sub{color:var(--muted);font-size:13px;margin-bottom:15px}
+  #shelfCount{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .linkbtn{background:none;border:none;color:var(--muted);font-family:var(--sans);font-size:12.5px;font-weight:600;text-decoration:underline;cursor:pointer;padding:2px 2px;flex:none}
 
   /* ---------- Controls ---------- */
   .controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
@@ -315,7 +317,7 @@
 <div class="modal" id="addModal">
   <div class="sheet">
     <div class="grab"></div>
-    <div class="sh-head"><h3>Add a Product</h3><button class="xbtn" id="closeAdd" aria-label="Close">✕</button></div>
+    <div class="sh-head"><h3 id="sheetTitle">Add a Product</h3><button class="xbtn" id="closeAdd" aria-label="Close">✕</button></div>
     <div class="modes" id="capModes">
       <button data-cap="ai" class="on">📷 AI Photo</button>
       <button data-cap="scan">Scan</button>
@@ -612,14 +614,24 @@ function renderChips(){
 }
 function renderShelf(){
   const total=DB.products.length, stock=DB.products.filter(p=>p.qty>0).length;
-  $("#shelfCount").textContent = `${total} products · ${stock} in stock`;
+  $("#shelfCount").innerHTML = `<span>${total} product${total===1?"":"s"} · ${stock} in stock</span>`
+    + (total?`<button class="linkbtn" id="clearShelf">Clear all</button>`:"");
+  if($("#clearShelf")) $("#clearShelf").onclick=clearShelf;
+
+  const grid=$("#shelfGrid");
+  if(!total){
+    grid.innerHTML=`<div class="empty" style="grid-column:1/-1">Your shelf is empty.<br>Add products with the ＋ button — or:<br>
+      <button class="btn ghost" id="reseedBtn" style="max-width:260px;margin:16px auto 0">Load the 33 starter products</button></div>`;
+    if($("#reseedBtn")) $("#reseedBtn").onclick=reseedShelf;
+    return;
+  }
+
   const q=query.trim().toLowerCase();
   const list=DB.products.filter(p=>{
     if(filter!=="All" && p.cat!==filter) return false;
     if(q && !(p.name.toLowerCase().includes(q)||p.brand.toLowerCase().includes(q))) return false;
     return true;
   });
-  const grid=$("#shelfGrid");
   if(!list.length){ grid.innerHTML=`<div class="empty" style="grid-column:1/-1">No products match. Try clearing the search or filter.</div>`; return; }
   grid.innerHTML = list.map(p=>{
     const ci=catInfo(p.cat), out=p.qty<=0, low=p.qty===1;
@@ -642,6 +654,7 @@ function renderShelf(){
           <span class="qn">${p.qty}</span>
           <button class="qbtn" data-act="inc">+</button>
         </div>
+        <button class="rm" data-act="edit" title="Edit">✎</button>
         <button class="rm" data-act="rm" title="Remove">✕</button>
       </div>
       ${out?`<div class="oos"><div class="lab">Out of stock</div><button data-act="inc">Restock +1</button></div>`:""}
@@ -650,14 +663,24 @@ function renderShelf(){
   $$("#shelfGrid .card").forEach(card=>{
     const id=+card.dataset.id;
     card.querySelectorAll("[data-act]").forEach(btn=>{
-      btn.onclick=()=>{
+      btn.onclick=e=>{
+        e.stopPropagation();
         const a=btn.dataset.act;
         if(a==="inc") chgQty(id,1);
         else if(a==="dec") chgQty(id,-1);
         else if(a==="rm") removeProd(id);
+        else if(a==="edit") openEdit(id);
       };
     });
   });
+}
+function clearShelf(){
+  if(confirm("Clear your entire shelf? This removes all products (your streak and history stay).")){
+    DB.products=[]; save(); renderChips(); renderShelf(); fillAnchor(); toast("Shelf cleared");
+  }
+}
+function reseedShelf(){
+  DB.products=seedFresh().products; save(); renderChips(); renderShelf(); fillAnchor(); toast("Starter shelf loaded");
 }
 function chgQty(id,d){ const p=DB.products.find(x=>x.id===id); if(!p) return; p.qty=Math.max(0,p.qty+d); save(); renderShelf(); }
 function removeProd(id){
@@ -799,7 +822,23 @@ function renderRhythm(){
    Add product — Scan / Manual / AI
    ============================================================ */
 let scanStream=null, scanTimer=null, zxingReader=null, capMode="scan";
-function openAdd(){ $("#addModal").classList.add("on"); showCap("ai"); }
+function openAdd(){
+  $("#addModal").classList.add("on");
+  if($("#sheetTitle")) $("#sheetTitle").textContent="Add a Product";
+  if($("#capModes")) $("#capModes").style.display="";
+  showCap("ai");
+}
+function openEdit(id){
+  const p=DB.products.find(x=>x.id===id); if(!p) return;
+  $("#addModal").classList.add("on"); stopScan();
+  if($("#sheetTitle")) $("#sheetTitle").textContent="Edit Product";
+  if($("#capModes")) $("#capModes").style.display="none";
+  capManual(productToPref(p), id);
+}
+function productToPref(p){
+  return {name:p.name, brand:p.brand, cat:p.cat,
+    when: p.am&&p.pm?"both":(p.am?"am":"pm"), freq:p.freq, active:!!p.active};
+}
 function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
 function stopScan(){
   if(scanTimer){ clearInterval(scanTimer); scanTimer=null; }
@@ -921,7 +960,7 @@ async function lookupBarcode(code){
   if($("#toManual3")) $("#toManual3").onclick=e=>{e.preventDefault();showCap("manual");};
   if($("#rescan")) $("#rescan").onclick=e=>{e.preventDefault();capScan();};
 }
-function capManual(pref={}){
+function capManual(pref={}, editId=null){
   const catOpts=Object.keys(CATS).map(k=>`<option value="${k}">${CATS[k].emoji} ${CATS[k].label}</option>`).join("");
   const freqs=["Daily","Twice daily","2-3x/week","3-4x/week","Weekly","As needed","As desired"];
   $("#capBody").innerHTML=`
@@ -933,26 +972,38 @@ function capManual(pref={}){
     </select></div>
     <div class="field"><label>Frequency</label><select class="f" id="mFreq">${freqs.map(f=>`<option>${f}</option>`).join("")}</select></div>
     <label class="checkrow"><input type="checkbox" id="mActive"> This is an active (retinol / acid / exfoliant — schedule it with cooldowns)</label>
-    <button class="btn primary" id="mSave">Add to My Shelf →</button>`;
-  $("#mSave").onclick=saveManual;
+    <button class="btn primary" id="mSave">${editId?"Save changes →":"Add to My Shelf →"}</button>
+    ${editId?`<button class="btn ghost" id="mDelete" style="margin-top:8px">Remove from shelf</button>`:""}`;
+  // apply prefill to selects/checkbox
+  if(pref.cat && $("#mCat")) $("#mCat").value=pref.cat;
+  if(pref.when && $("#mWhen")) $("#mWhen").value=pref.when;
+  if(pref.freq && $("#mFreq")) $("#mFreq").value=pref.freq;
+  if(pref.active && $("#mActive")) $("#mActive").checked=true;
+  $("#mSave").onclick=()=>saveProduct(editId);
+  if(editId && $("#mDelete")) $("#mDelete").onclick=()=>{ closeAdd(); removeProd(editId); };
 }
-function saveManual(){
+function saveProduct(editId){
   const name=$("#mName").value.trim(), brand=$("#mBrand").value.trim();
   if(!name){ toast("Add a product name"); return; }
   const cat=$("#mCat").value, when=$("#mWhen").value, freq=$("#mFreq").value, isActive=$("#mActive").checked;
-  const id=Math.max(0,...DB.products.map(p=>p.id))+1;
-  const prod={
-    id, name, brand:brand||"—", cat,
+  const fields={
+    name, brand:brand||"—", cat,
     am:when==="pm"?0:1, pm:when==="am"?0:1,
     freq, step:STEP_OF[cat]??3,
     cd:isActive?2:0, max:isActive?4:0,
-    qty:1, lastUsed:null,
     active:isActive?1:0,
     hydra:(cat==="serum"&&!isActive)?1:0,
   };
-  DB.products.push(prod); save();
-  toast(`Added ${name}`); closeAdd();
-  renderChips(); renderShelf(); fillAnchor();
+  if(editId){
+    const p=DB.products.find(x=>x.id===editId);
+    if(p) Object.assign(p, fields);   // keep id, qty, lastUsed
+    toast("Saved changes");
+  } else {
+    const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
+    DB.products.push({id, ...fields, qty:1, lastUsed:null});
+    toast(`Added ${name}`);
+  }
+  save(); closeAdd(); renderChips(); renderShelf(); fillAnchor();
 }
 function capAI(){
   const savedKey=localStorage.getItem("skinritual-aikey")||"";
