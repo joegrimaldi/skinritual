@@ -317,9 +317,9 @@
     <div class="grab"></div>
     <div class="sh-head"><h3>Add a Product</h3><button class="xbtn" id="closeAdd" aria-label="Close">✕</button></div>
     <div class="modes" id="capModes">
-      <button data-cap="scan" class="on">Scan</button>
+      <button data-cap="ai" class="on">📷 AI Photo</button>
+      <button data-cap="scan">Scan</button>
       <button data-cap="manual">Manual</button>
-      <button data-cap="ai">AI Photo</button>
     </div>
     <div id="capBody"></div>
   </div>
@@ -799,7 +799,7 @@ function renderRhythm(){
    Add product — Scan / Manual / AI
    ============================================================ */
 let scanStream=null, scanTimer=null, zxingReader=null, capMode="scan";
-function openAdd(){ $("#addModal").classList.add("on"); showCap("scan"); }
+function openAdd(){ $("#addModal").classList.add("on"); showCap("ai"); }
 function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
 function stopScan(){
   if(scanTimer){ clearInterval(scanTimer); scanTimer=null; }
@@ -914,7 +914,10 @@ async function lookupBarcode(code){
     toast(hit.via?`Found via ${hit.via} — review & save`:"Found — review & save");
     return;
   }
-  status.innerHTML=`Barcode <b>${esc(code)}</b> wasn't in any source. <a href="#" id="toManual3">Enter it manually →</a> <a href="#" id="rescan" style="margin-left:10px">Rescan</a>`;
+  status.innerHTML=`Barcode <b>${esc(code)}</b> isn't in the free databases (common for K-beauty).<br>
+    <a href="#" id="toAI" style="font-weight:700">📷 Identify with AI Photo →</a><br>
+    <a href="#" id="toManual3">Enter it manually →</a> <a href="#" id="rescan" style="margin-left:10px">Rescan</a>`;
+  if($("#toAI")) $("#toAI").onclick=e=>{e.preventDefault();showCap("ai");};
   if($("#toManual3")) $("#toManual3").onclick=e=>{e.preventDefault();showCap("manual");};
   if($("#rescan")) $("#rescan").onclick=e=>{e.preventDefault();capScan();};
 }
@@ -954,12 +957,15 @@ function saveManual(){
 function capAI(){
   const savedKey=localStorage.getItem("skinritual-aikey")||"";
   $("#capBody").innerHTML=`
-    <p class="hint">Optional. Uses <b>your own</b> Anthropic key (stored only on this device) to read a product photo and pre-fill the form. Scan and Manual need no key.</p>
+    <p class="hint"><b>Best for K-beauty &amp; niche skincare.</b> Snap the front of the bottle — AI reads the label and fills in name, brand &amp; category. Uses <b>your own</b> Anthropic key, stored only on this device. ${savedKey?"":`<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a>`}</p>
     <div class="field"><label>Anthropic API key</label><input class="f" id="aiKey" type="password" value="${esc(savedKey)}" placeholder="sk-ant-…"></div>
     <div class="field"><label>Product photo</label><input class="f" id="aiFile" type="file" accept="image/*" capture="environment"></div>
     <button class="btn primary" id="aiGo">Identify with AI →</button>
     <div class="hint" id="aiOut" style="margin-top:12px"></div>`;
   $("#aiGo").onclick=runAI;
+  // auto-run once a photo is chosen if a key is already saved
+  const fileEl=$("#aiFile");
+  if(fileEl) fileEl.onchange=()=>{ if($("#aiKey").value.trim()) runAI(); };
 }
 function fileToB64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(f);});}
 async function runAI(){
