@@ -342,7 +342,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v10";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v11";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -367,55 +367,7 @@ const catInfo = c => CATS[c] || {label:c, pill:"#eee", emoji:"🧴"};
 const STEP_OF = {cleanser:1,toner:2,serum:3,retinol:3,exfoliant:3,spot:3,eye_cream:4,
   moisturizer:5,night_cream:5,sunscreen:6,mask:0,sheet_mask:0};
 
-/* ---------- Seed catalog: 33 products ---------- */
-/* [id,name,brand,cat,am,pm,freq,step,cd,max, ...flags] */
-const SEED = [
-  {id:1, name:"Zero Pore Cream 2.0", brand:"Medicube", cat:"moisturizer", am:1,pm:1, freq:"Daily", step:5, cd:0, max:0},
-  {id:2, name:"Zero Pore Blackhead Mud Mask", brand:"Medicube", cat:"mask", am:0,pm:1, freq:"Weekly", step:0, cd:7, max:1},
-  {id:3, name:"Hypochlorous Acid Daily Facial Spray", brand:"Medicube", cat:"toner", am:1,pm:1, freq:"Daily", step:2, cd:0, max:0},
-  {id:4, name:"Hypochlorous Acid Peel Mask", brand:"Medicube", cat:"mask", am:0,pm:1, freq:"Weekly", step:0, cd:7, max:1},
-  {id:5, name:"Oil Cleansing for Sensitive Skin", brand:"MUJI", cat:"cleanser", am:0,pm:1, freq:"Daily", step:1, cd:0, max:0, oil:1},
-  {id:6, name:"Foaming Face Soap Sensitive Skin", brand:"MUJI", cat:"cleanser", am:1,pm:1, freq:"Daily", step:1, cd:0, max:0},
-  {id:7, name:"Ultra Facial Oil-Free Lotion", brand:"Kiehl's", cat:"moisturizer", am:1,pm:1, freq:"Daily", step:5, cd:0, max:0, light:1},
-  {id:8, name:"Madagascar Centella Ampoule Foam", brand:"Skin1004", cat:"cleanser", am:1,pm:1, freq:"Daily", step:1, cd:0, max:0, fav:1},
-  {id:9, name:"Madagascar Centella Ampoule", brand:"Skin1004", cat:"serum", am:1,pm:1, freq:"Daily", step:3, cd:0, max:0, hydra:1},
-  {id:10,name:"Lavender & Manuka Honey Balancing Mist", brand:"Naturopathica", cat:"toner", am:1,pm:1, freq:"Daily", step:2, cd:0, max:0},
-  {id:11,name:"Hydrating Milky Toner", brand:"Thayers", cat:"toner", am:1,pm:1, freq:"Daily", step:2, cd:0, max:0},
-  {id:12,name:"Oil Eliminator Shine Control Toner", brand:"Kiehl's", cat:"toner", am:1,pm:1, freq:"Daily", step:2, cd:0, max:0},
-  {id:13,name:"Every Sun Day SPF 50+ Sun Fluid", brand:"Dr. Jart+", cat:"sunscreen", am:1,pm:0, freq:"Daily", step:6, cd:0, max:0, fav:1},
-  {id:14,name:"Daily Prevention Mineral SPF 30", brand:"Image Skincare", cat:"sunscreen", am:1,pm:0, freq:"Daily", step:6, cd:0, max:0},
-  {id:15,name:"Tone Blur Essence Sunscreen SPF 50+", brand:"Dearcloud", cat:"sunscreen", am:1,pm:0, freq:"Daily", step:6, cd:0, max:0},
-  {id:16,name:"Blue Herbal Spot Treatment", brand:"Kiehl's", cat:"spot", am:0,pm:1, freq:"As needed", step:3, cd:0, max:0},
-  {id:17,name:"PRID Pain Relief & Drawing Salve", brand:"Hyland's", cat:"spot", am:0,pm:1, freq:"As needed", step:3, cd:0, max:0},
-  {id:18,name:"Hydro-Stars Pimple Patches", brand:"Starface", cat:"spot", am:1,pm:1, freq:"As needed", step:3, cd:0, max:0},
-  {id:19,name:"Retinol Skin-Renewing Micro-Dose Serum", brand:"Kiehl's", cat:"retinol", am:0,pm:1, freq:"3-4x/week", step:3, cd:2, max:4, active:1},
-  {id:20,name:"Hyaluronic Sea Serum", brand:"OSEA", cat:"serum", am:1,pm:1, freq:"Daily", step:3, cd:0, max:0, hydra:1},
-  {id:21,name:"Bright Eyes Dark Circle Concentrate", brand:"Goldfaden MD", cat:"eye_cream", am:1,pm:1, freq:"Daily", step:4, cd:0, max:0},
-  {id:22,name:"Wake Up Call Overnight Treatment", brand:"Goldfaden MD", cat:"night_cream", am:0,pm:1, freq:"Nightly", step:5, cd:0, max:0},
-  {id:23,name:"Dream Cream Nighttime Moisturizer", brand:"Onekind", cat:"night_cream", am:0,pm:1, freq:"Nightly", step:5, cd:0, max:0},
-  {id:24,name:"Vital C Hydrating Enzyme Masque", brand:"Image Skincare", cat:"mask", am:0,pm:1, freq:"Weekly", step:0, cd:7, max:1},
-  {id:25,name:"Tightening Detox Mask", brand:"Dr. Loretta", cat:"mask", am:0,pm:1, freq:"Weekly", step:0, cd:7, max:1},
-  {id:26,name:"Peel Shot Black Rice Ampoule", brand:"Dr. Melaxin", cat:"exfoliant", am:0,pm:1, freq:"2-3x/week", step:3, cd:2, max:3, active:1},
-  {id:27,name:"Peel Shot White Rice Ampoule", brand:"Dr. Melaxin", cat:"exfoliant", am:0,pm:1, freq:"2-3x/week", step:3, cd:2, max:3, active:1},
-  {id:28,name:"Polishing Facial Exfoliant", brand:"Grown Alchemist", cat:"exfoliant", am:1,pm:1, freq:"2-3x/week", step:3, cd:2, max:3, active:1},
-  {id:29,name:"Pearl Milk Tea Nutrition Mask", brand:"Smoko", cat:"sheet_mask", am:0,pm:1, freq:"As desired", step:0, cd:3, max:0, calming:1},
-  {id:30,name:"I'm Honey Nourishing Mask Sheet", brand:"Tony Moly", cat:"sheet_mask", am:0,pm:1, freq:"As desired", step:0, cd:3, max:0, calming:1},
-  {id:31,name:"I'm Green Tea Purifying Mask Sheet", brand:"Tony Moly", cat:"sheet_mask", am:0,pm:1, freq:"As desired", step:0, cd:3, max:0},
-  {id:32,name:"I'm Rice Clear Skin Mask Sheet", brand:"Tony Moly", cat:"sheet_mask", am:0,pm:1, freq:"As desired", step:0, cd:3, max:0},
-  {id:33,name:"I'm Lavender Hydrating Mask Sheet", brand:"Tony Moly", cat:"sheet_mask", am:0,pm:1, freq:"As desired", step:0, cd:3, max:0, calming:1},
-];
-
-/* ---------- Per-product how-to: [verb, sentence] ---------- */
-const HOWTO = {
-  5:["Oil cleanse","Massage onto DRY skin 60s to melt sunscreen & sebum, then rinse."],
-  6:["Cleanse","Work into a soft foam on damp skin, rinse."],
-  8:["Cleanse","Work into a soft foam on damp skin, rinse. AM: single cleanse only."],
-  9:["Hydrate","Press the centella ampoule into damp skin to calm and prep."],
-  13:["SPF","Two fingers' worth, last step. Wait 2–3 min before sun/makeup."],
-  19:["Retinol","Pea-size on dry skin. PM only, never with a strong exfoliant."],
-  20:["Hydrate","Press the sea serum into damp skin for a plump base."],
-  21:["Eye cream","Tap a rice-grain amount around the orbital bone."],
-};
+/* ---------- Per-category how-to: [verb, sentence] ---------- */
 const CAT_HOWTO = {
   cleanser:["Cleanse","Work into a soft foam on damp skin, rinse."],
   toner:["Tone","Sweep or mist over skin to rebalance and prep."],
@@ -430,10 +382,7 @@ const CAT_HOWTO = {
   mask:["Mask","Apply an even layer, leave on, then rinse."],
   sheet_mask:["Sheet mask","Lay onto clean skin 15–20 min, then pat in the essence."],
 };
-const howtoFor = p => HOWTO[p.id] || CAT_HOWTO[p.cat] || [catInfo(p.cat).label,"Apply as directed."];
-
-/* Cooldown meta note shown on the active step. */
-const CD_NOTE = {19:"max 4×/week", 26:"max 3×/week", 27:"max 3×/week", 28:"max 3×/week"};
+const howtoFor = p => CAT_HOWTO[p.cat] || [catInfo(p.cat).label,"Apply as directed."];
 
 /* ============================================================
    State
@@ -443,17 +392,14 @@ let mode = "am";     // ritual mode
 let filter = "All";  // shelf category filter
 let query = "";
 
-function seedFresh(){
-  return {ver:2, products:SEED.map(s=>({...s, qty:1, lastUsed:null})), log:[]};
-}
+function freshDB(){ return {ver:2, products:[], log:[]}; }
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
-    if(!raw){ DB = seedFresh(); save(); return; }
+    if(!raw){ DB = freshDB(); save(); return; }
     const parsed = JSON.parse(raw);
     DB = {ver:parsed.ver||2, products:parsed.products||[], log:parsed.log||[]};
-    if(!DB.products.length){ DB = seedFresh(); save(); }
-  }catch(e){ DB = seedFresh(); save(); }
+  }catch(e){ DB = freshDB(); }
 }
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(DB)); }catch(e){} }
 
@@ -522,7 +468,7 @@ function buildRoutine(routineMode, anchorId){
           .sort((a,b)=>daysSince(b.lastUsed)-daysSince(a.lastUsed))[0] || null;
       }
       if(active){
-        const m=[]; if(CD_NOTE[active.id]) m.push(CD_NOTE[active.id]);
+        const m=[]; if(active.max) m.push(`max ${active.max}×/week`);
         m.push(active.cat==="retinol" ? "retinol night" : "exfoliation night");
         add(active, null, m);
         inStock(p=>p.active && p.id!==active.id).forEach(p=>{
@@ -536,7 +482,7 @@ function buildRoutine(routineMode, anchorId){
           const dLeft = Math.max(0, p.cd - daysSince(p.lastUsed));
           const capped = p.max && usesInLast7(p.id) >= p.max;
           skips.push({p, why: capped
-            ? `Weekly limit reached (${CD_NOTE[p.id] || p.freq}).`
+            ? `Weekly limit reached (${p.max?`max ${p.max}×/week`:p.freq}).`
             : `On cooldown — available in ${dLeft} day${dLeft===1?"":"s"}.`});
         });
       }
@@ -623,9 +569,7 @@ function renderShelf(){
 
   const grid=$("#shelfGrid");
   if(!total){
-    grid.innerHTML=`<div class="empty" style="grid-column:1/-1">Your shelf is empty.<br>Add products with the ＋ button — or:<br>
-      <button class="btn ghost" id="reseedBtn" style="max-width:260px;margin:16px auto 0">Load the 33 starter products</button></div>`;
-    if($("#reseedBtn")) $("#reseedBtn").onclick=reseedShelf;
+    grid.innerHTML=`<div class="empty" style="grid-column:1/-1">Your shelf is empty.<br>Tap the ＋ button to add your first product.</div>`;
     return;
   }
 
@@ -681,9 +625,6 @@ function clearShelf(){
   if(confirm("Clear your entire shelf? This removes all products (your streak and history stay).")){
     DB.products=[]; save(); renderChips(); renderShelf(); fillAnchor(); toast("Shelf cleared");
   }
-}
-function reseedShelf(){
-  DB.products=seedFresh().products; save(); renderChips(); renderShelf(); fillAnchor(); toast("Starter shelf loaded");
 }
 function chgQty(id,d){ const p=DB.products.find(x=>x.id===id); if(!p) return; p.qty=Math.max(0,p.qty+d); save(); renderShelf(); }
 function removeProd(id){
@@ -765,7 +706,7 @@ function showRecap(ids){
   $("#recap").classList.add("on");
   $("#recapClose").onclick=()=>{ $("#recap").classList.remove("on"); renderRitual(); if($("#view-rhythm").classList.contains("on")) renderRhythm(); };
 }
-function meta(id){ return DB.products.find(p=>p.id===id) || SEED.find(s=>s.id===id) || {brand:"",name:"Product"}; }
+function meta(id){ return DB.products.find(p=>p.id===id) || {brand:"",name:"Product"}; }
 
 /* ============================================================
    Rhythm
