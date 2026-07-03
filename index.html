@@ -798,10 +798,15 @@ function renderRhythm(){
 /* ============================================================
    Add product — Scan / Manual / AI
    ============================================================ */
-let scanner=null, capMode="scan";
+let scanStream=null, scanTimer=null, zxingReader=null, capMode="scan";
 function openAdd(){ $("#addModal").classList.add("on"); showCap("scan"); }
 function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
-function stopScan(){ if(scanner){ try{scanner.clear();}catch(e){} scanner=null; } }
+function stopScan(){
+  if(scanTimer){ clearInterval(scanTimer); scanTimer=null; }
+  if(zxingReader){ try{zxingReader.reset();}catch(e){} zxingReader=null; }
+  if(scanStream){ try{scanStream.getTracks().forEach(t=>t.stop());}catch(e){} scanStream=null; }
+}
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 
 function showCap(m){
   capMode=m; stopScan();
@@ -812,52 +817,106 @@ function showCap(m){
 }
 function capScan(){
   $("#capBody").innerHTML=`
-    <p class="hint">Point your camera at the product barcode. We'll look it up (free, no account) and pre-fill the form for you.</p>
+    <p class="hint">Point your camera at the product barcode. We read it and check the open product databases (Open Beauty &amp; Food Facts) to pre-fill the form. If it's not found, tap AI Photo or enter it manually. No account needed.</p>
     <div id="scanBox"></div>
     <div class="hint" id="scanStatus" style="text-align:center;min-height:20px"></div>`;
   startScan();
 }
-function startScan(){
-  const status=$("#scanStatus");
-  const toManual=(txt)=>{ status.innerHTML=`${txt} <a href="#" id="toManual">Enter manually →</a>`;
+async function startScan(){
+  const status=$("#scanStatus"), box=$("#scanBox");
+  const toManual=(txt)=>{ status.innerHTML=`${esc(txt)} <a href="#" id="toManual">Enter manually →</a>`;
     const a=$("#toManual"); if(a) a.onclick=e=>{e.preventDefault();showCap("manual");}; };
-  const go=()=>{
+  const secure = window.isSecureContext || location.hostname==="localhost" || location.hostname==="127.0.0.1";
+  if(!secure){ toManual("Camera needs a secure (https) connection."); return; }
+
+  box.innerHTML="";
+  const video=document.createElement("video");
+  video.setAttribute("playsinline","true"); video.muted=true;
+  video.style.cssText="width:100%;border-radius:14px;background:#000;aspect-ratio:4/3;object-fit:cover";
+  box.appendChild(video);
+  const onCode=code=>{ if(!code) return; buzz(20); stopScan(); lookupBarcode(String(code).trim()); };
+
+  // Preferred: native BarcodeDetector (fast, reliable for UPC/EAN on iOS 17+/Android Chrome)
+  if("BarcodeDetector" in window){
     try{
-      scanner=new Html5Qrcode("scanBox");
-      scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:240,height:160}},
-        code=>{ buzz(20); stopScan(); lookupBarcode(code); },
-        ()=>{}).catch(()=>toManual("Camera unavailable."));
-    }catch(e){ toManual("Camera unavailable."); }
-  };
-  if(window.Html5Qrcode){ go(); return; }
+      const supported=await BarcodeDetector.getSupportedFormats();
+      const want=["ean_13","ean_8","upc_a","upc_e","code_128","code_39","itf","codabar"].filter(f=>supported.includes(f));
+      const det=new BarcodeDetector(want.length?{formats:want}:undefined);
+      scanStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+      video.srcObject=scanStream; await video.play().catch(()=>{});
+      status.textContent="Point at the barcode…";
+      scanTimer=setInterval(async()=>{
+        try{ const codes=await det.detect(video); if(codes&&codes.length) onCode(codes[0].rawValue); }catch(e){}
+      },300);
+      return;
+    }catch(e){ stopScan(); box.innerHTML=""; box.appendChild(video); }
+  }
+  // Fallback: ZXing (robust multi-format engine) loaded lazily from CDN
   status.textContent="Loading scanner…";
-  const s=document.createElement("script");
-  s.src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
-  s.onload=go;
-  s.onerror=()=>toManual("Scanner failed to load.");
-  document.head.appendChild(s);
-}
-async function lookupBarcode(code){
-  const status=$("#scanStatus"); status.textContent="Looking up…";
   try{
+    if(!window.ZXing) await loadScript("https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js");
+    zxingReader=new ZXing.BrowserMultiFormatReader();
+    status.textContent="Point at the barcode…";
+    await zxingReader.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}}, video,
+      (result)=>{ if(result) onCode(result.getText()); });
+  }catch(e){ toManual("Couldn't start the camera. Check camera permission, or"); }
+}
+
+// Guess a category from product text so the manual form pre-selects it.
+function guessCat(text){
+  const t=(text||"").toLowerCase();
+  const rules=[
+    ["sunscreen",["spf","sunscreen","sun fluid","uv "]],
+    ["retinol",["retinol","retinal"]],
+    ["exfoliant",["exfoliant","peel","aha","bha","glycolic","salicylic","lactic"]],
+    ["sheet_mask",["sheet mask","mask sheet"]],
+    ["mask",["mask","masque"]],
+    ["eye_cream",["eye cream","under eye","eye concentrate"]],
+    ["night_cream",["night cream","overnight","sleeping"]],
+    ["serum",["serum","ampoule","essence"]],
+    ["toner",["toner","mist","tonic"]],
+    ["spot",["spot treatment","pimple","blemish","acne patch","hydrocolloid"]],
+    ["cleanser",["cleanser","cleansing","face wash","cleansing oil","foam"]],
+    ["moisturizer",["moisturizer","moisturiser","lotion","cream","hydrat"]],
+  ];
+  for(const [cat,keys] of rules){ if(keys.some(k=>t.includes(k))) return cat; }
+  return "";
+}
+// Chain of keyless sources: retailer aggregate → beauty DB → food DB.
+async function lookupSources(code){
+  try{ // 1. UPCitemdb trial — aggregates Amazon/Walmart/etc. listings (keyless, rate-limited)
+    const r=await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
+    if(r.ok){ const j=await r.json(); const it=j.items&&j.items[0];
+      if(it&&it.title) return {name:it.title, brand:it.brand||"", cat:guessCat(it.title+" "+(it.category||"")), via:"retailer data"}; }
+  }catch(e){}
+  try{ // 2. Open Beauty Facts
     const r=await fetch(`https://world.openbeautyfacts.org/api/v2/product/${encodeURIComponent(code)}.json`);
     const j=await r.json();
-    if(j.status===1 && j.product){
-      const p=j.product;
-      showCap("manual");
-      const nm=$("#mName"), br=$("#mBrand");
-      if(nm) nm.value=p.product_name||p.generic_name||"";
-      if(br) br.value=(p.brands||"").split(",")[0].trim();
-      toast("Found — review & save");
-      return;
-    }
-    status.innerHTML=`Not in the database. <a href="#" id="toManual3">Enter it manually →</a> <a href="#" id="rescan" style="margin-left:10px">Rescan</a>`;
-    if($("#toManual3")) $("#toManual3").onclick=e=>{e.preventDefault();showCap("manual");};
-    if($("#rescan")) $("#rescan").onclick=e=>{e.preventDefault();capScan();};
-  }catch(e){
-    status.innerHTML=`Lookup failed. <a href="#" id="toManualErr">Enter manually →</a>`;
-    if($("#toManualErr")) $("#toManualErr").onclick=e=>{e.preventDefault();showCap("manual");};
+    if(j.status===1&&j.product){ const p=j.product;
+      return {name:p.product_name||p.generic_name||"", brand:(p.brands||"").split(",")[0].trim(), cat:guessCat((p.product_name||"")+" "+(p.categories||"")), via:"Open Beauty Facts"}; }
+  }catch(e){}
+  try{ // 3. Open Food Facts (some cosmetics are catalogued here)
+    const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`);
+    const j=await r.json();
+    if(j.status===1&&j.product){ const p=j.product;
+      return {name:p.product_name||"", brand:(p.brands||"").split(",")[0].trim(), cat:guessCat((p.product_name||"")+" "+(p.categories||"")), via:"Open Food Facts"}; }
+  }catch(e){}
+  return null;
+}
+async function lookupBarcode(code){
+  const status=$("#scanStatus"); status.textContent=`Looking up ${code}…`;
+  let hit=null; try{ hit=await lookupSources(code); }catch(e){}
+  if(hit&&hit.name){
+    showCap("manual");
+    if($("#mName")) $("#mName").value=hit.name;
+    if($("#mBrand")) $("#mBrand").value=hit.brand||"";
+    if(hit.cat&&CATS[hit.cat]&&$("#mCat")) $("#mCat").value=hit.cat;
+    toast(hit.via?`Found via ${hit.via} — review & save`:"Found — review & save");
+    return;
   }
+  status.innerHTML=`Barcode <b>${esc(code)}</b> wasn't in any source. <a href="#" id="toManual3">Enter it manually →</a> <a href="#" id="rescan" style="margin-left:10px">Rescan</a>`;
+  if($("#toManual3")) $("#toManual3").onclick=e=>{e.preventDefault();showCap("manual");};
+  if($("#rescan")) $("#rescan").onclick=e=>{e.preventDefault();capScan();};
 }
 function capManual(pref={}){
   const catOpts=Object.keys(CATS).map(k=>`<option value="${k}">${CATS[k].emoji} ${CATS[k].label}</option>`).join("");
