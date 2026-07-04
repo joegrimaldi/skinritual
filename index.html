@@ -188,6 +188,29 @@
   .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:.5}
   .empty{text-align:center;color:var(--muted);font-size:14px;padding:34px 16px;line-height:1.5}
 
+  /* ---------- Calendar ---------- */
+  .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .caltitle{font-family:var(--serif);font-size:19px;font-weight:600}
+  .calnav{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--accent);font-size:18px;line-height:1;cursor:pointer}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .caldow{margin-bottom:5px}
+  .caldow span{text-align:center;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.3px}
+  .calday{aspect-ratio:1;border:none;background:rgba(140,100,68,.05);border-radius:9px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:1px;cursor:pointer;color:var(--text);padding:0;position:relative}
+  .calday.empty{background:none;cursor:default}
+  .calday .cn{font-size:12.5px;font-weight:600}
+  .calday .cmk{font-size:8px;line-height:1}
+  .calday.has{background:rgba(140,100,68,.16)}
+  .calday.today{outline:2px solid var(--accent);outline-offset:-2px}
+  .calday.sel{background:var(--accent);color:#fff}
+  .caldetail{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .cd-date{font-family:var(--serif);font-size:17px;font-weight:600;margin-bottom:8px}
+  .cd-entry{margin-bottom:10px}
+  .cd-mode{font-size:12.5px;font-weight:700;color:var(--accent);margin-bottom:3px}
+  .cd-entry ul{margin:0;padding-left:18px}
+  .cd-entry li{font-size:13px;line-height:1.5}
+  .cd-none{font-size:13px;color:var(--muted)}
+
   /* ---------- FAB ---------- */
   .fab{position:fixed;right:calc(var(--gutter) + max(0px, (100vw - 640px)/2));
     bottom:calc(92px + env(safe-area-inset-bottom));z-index:45;
@@ -342,7 +365,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v11";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v12";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -737,18 +760,6 @@ function renderRhythm(){
     return `<div class="night ${i===0?"today":""}"><div class="day">${label}</div><div class="plan ${d.active?"":"rest"}">${body}</div></div>`;
   }).join("") : `<div class="empty" style="padding:14px">Add an active to see a schedule.</div>`;
 
-  // usage log
-  const logRows = DB.log.slice().sort((a,b)=>b.ts-a.ts).slice(0,40).map(e=>{
-    const dt=new Date(e.ts);
-    const when=dt.toLocaleDateString(undefined,{month:"short",day:"numeric"})+" · "+dt.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
-    const dots=e.products.slice(0,9).map(()=>`<span class="dot"></span>`).join("");
-    return `<div class="logitem">
-      <div>${e.mode==="am"?"☀️":"🌙"}</div>
-      <div><div class="when">${esc(when)}</div><div class="sub2">${e.products.length} step${e.products.length===1?"":"s"}</div></div>
-      <div class="dots">${dots}</div>
-    </div>`;
-  }).join("") || `<div class="empty" style="padding:14px">No rituals logged yet. Build one on the Ritual tab.</div>`;
-
   $("#rhythmOut").innerHTML=`
     <div class="hero">
       <div class="big">${n>0?"🔥 "+n:"✨"}</div>
@@ -759,7 +770,64 @@ function renderRhythm(){
     <div class="panel"><h3>This week</h3>
       <div style="font-size:14px">You've logged <b>${week}</b> ritual${week===1?"":"s"} in the last 7 days.</div>
     </div>
-    <div class="panel"><h3>History</h3>${logRows}</div>`;
+    <div class="panel" id="calWrap"></div>`;
+  renderCalendar();
+}
+
+/* Calendar of logged rituals — tap a day to see what was used. */
+let calY=null, calM=null, calSel=null;
+function renderCalendar(){
+  const wrap=$("#calWrap"); if(!wrap) return;
+  const now=new Date();
+  if(calY===null){ calY=now.getFullYear(); calM=now.getMonth(); }
+
+  const byDay={};
+  DB.log.forEach(e=>{ (byDay[dayKey(e.ts)]=byDay[dayKey(e.ts)]||[]).push(e); });
+
+  const first=new Date(calY,calM,1);
+  const startDow=first.getDay();
+  const daysInMonth=new Date(calY,calM+1,0).getDate();
+  const monthName=first.toLocaleDateString(undefined,{month:"long",year:"numeric"});
+  const todayKey=dayKey(now.getTime());
+
+  let cells="";
+  for(let i=0;i<startDow;i++) cells+=`<div class="calday empty"></div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const dk=calY+"-"+calM+"-"+d;
+    const entries=byDay[dk]||[];
+    const mk=(entries.some(e=>e.mode==="am")?"☀️":"")+(entries.some(e=>e.mode==="pm")?"🌙":"");
+    const cls=["calday"];
+    if(entries.length) cls.push("has");
+    if(dk===todayKey) cls.push("today");
+    if(dk===calSel) cls.push("sel");
+    cells+=`<button class="${cls.join(" ")}" data-day="${dk}"><span class="cn">${d}</span>${mk?`<span class="cmk">${mk}</span>`:""}</button>`;
+  }
+
+  let detail="";
+  if(calSel){
+    const entries=(byDay[calSel]||[]).slice().sort((a,b)=>a.ts-b.ts);
+    const [yy,mm,dd]=calSel.split("-").map(Number);
+    const dateLabel=new Date(yy,mm,dd).toLocaleDateString(undefined,{weekday:"long",month:"long",day:"numeric"});
+    detail=`<div class="caldetail"><div class="cd-date">${esc(dateLabel)}</div>`+
+      (entries.length ? entries.map(e=>{
+        const t=new Date(e.ts).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+        const prods=e.products.map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
+        return `<div class="cd-entry"><div class="cd-mode">${e.mode==="am"?"☀️ Morning":"🌙 Evening"} · ${esc(t)}</div><ul>${prods}</ul></div>`;
+      }).join("") : `<div class="cd-none">No ritual logged this day.</div>`)+`</div>`;
+  }
+
+  wrap.innerHTML=`
+    <div class="calhead">
+      <button class="calnav" id="calPrev" aria-label="Previous month">‹</button>
+      <div class="caltitle">${esc(monthName)}</div>
+      <button class="calnav" id="calNext" aria-label="Next month">›</button>
+    </div>
+    <div class="calgrid caldow"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+    <div class="calgrid">${cells}</div>
+    ${detail}`;
+  $("#calPrev").onclick=()=>{ calM--; if(calM<0){calM=11;calY--;} calSel=null; renderCalendar(); };
+  $("#calNext").onclick=()=>{ calM++; if(calM>11){calM=0;calY++;} calSel=null; renderCalendar(); };
+  wrap.querySelectorAll(".calday[data-day]").forEach(b=>b.onclick=()=>{ calSel=(calSel===b.dataset.day?null:b.dataset.day); renderCalendar(); });
 }
 
 /* ============================================================
