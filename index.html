@@ -477,7 +477,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v36";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v37";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -948,7 +948,7 @@ function renderEditSheet(){
           <div style="margin-top:7px"><span class="pill" style="background:${ci.pill}">${esc(ci.label)}</span></div>
         </div>
       </div>
-      <div data-gapbody="${esc(g.key)}"></div>
+      ${gapBodyHTML(g)}
     </div>`;
   }).join("");
   if(o){
@@ -961,8 +961,158 @@ function renderEditSheet(){
       </div></div>`;
     }).join("");
   }
+  const wl=DB.wishlist||[];
+  if(wl.length){
+    h+=`<button class="editrow" id="wishHead" style="margin:18px 0 8px">♡ <span class="ename" style="font-size:15px">Wishlist</span><span class="ecount">${wl.length}</span><span style="color:var(--muted)">${_wishOpen?"⌄":"›"}</span></button>`;
+    if(_wishOpen) h+=wl.map(w=>{
+      const ci=catInfo(w.cat);
+      return `<div class="gapcard" style="padding:10px 14px"><div style="display:flex;align-items:center;gap:8px">
+        <span class="pill" style="background:${ci.pill};flex:none">${esc(ci.label)}</span>
+        <div style="flex:1;min-width:0;font-size:13.5px"><b>${esc(w.brand)}</b> ${esc(w.name)}</div>
+        ${w.tier?`<span class="tierchip">${esc(w.tier)}</span>`:""}
+        <button class="rm" data-unwish="${w.ts}" title="Remove">✕</button>
+      </div></div>`;
+    }).join("");
+  }
   h+=`<div class="hint" style="text-align:center;margin-top:16px">Audited just now — re-runs every time you open this.</div>`;
   body.innerHTML=h;
+  wireEditSheet(body);
+}
+
+/* ---------- The Edit, Layer 2 — AI suggestions (on demand, per gap) ---------- */
+let _wishOpen=false, _editBusy=null, _editFail=null, _editKeyFor=null;
+
+const EDIT_PROMPT = `You are a discerning skincare curator helping fill ONE specific gap on someone's shelf. Recommend only real, widely distributed products you are confident exist and are currently sold. Never recommend anything that conflicts with the actives already on their shelf. Respond with ONLY a JSON object, no prose:
+{ "candidates": [   // exactly 3, three DIFFERENT brands, one per price tier "$" (budget), "$$" (mid), "$$$" (premium)
+  { "name": string, "brand": string,
+    "cat": one of "cleanser","toner","serum","eye_cream","moisturizer","night_cream","sunscreen","exfoliant","spot","mask","sheet_mask","retinol",
+    "tier": "$"|"$$"|"$$$", "approxUsd": number,
+    "why": string,   // ONE sentence, must reference something specific already on their shelf
+    "note": string   // short combining/timing caution vs their actives, else ""
+  } ] }`;
+
+const normKey = s => String(s).toLowerCase().replace(/[^a-z0-9]/g,"");
+// Coerce the AI trio into safe candidates; null = graceful failure (show retry).
+function normalizeRecs(raw, gap){
+  const list = raw && Array.isArray(raw.candidates) ? raw.candidates : [];
+  const shelf = new Set(DB.products.map(p=>normKey(p.brand+p.name)));
+  const seen = new Set(), out=[];
+  list.forEach(c=>{
+    if(!c || typeof c.name!=="string" || typeof c.brand!=="string") return;
+    const name=c.name.trim(), brand=c.brand.trim();
+    if(!name || !brand) return;
+    const k=normKey(brand+name);
+    if(shelf.has(k) || seen.has(k)) return;   // never re-sell the shelf
+    seen.add(k);
+    const usd = Number.isFinite(c.approxUsd) ? Math.round(Math.min(300,Math.max(3,c.approxUsd))) : null;
+    let tier = ["$","$$","$$$"].includes(c.tier) ? c.tier : null;
+    if(!tier && usd!=null) tier = usd<15 ? "$" : usd<40 ? "$$" : "$$$";
+    out.push({name, brand, cat:CATS[c.cat]?c.cat:gap.cat, tier:tier||"$$", approxUsd:usd,
+      why:String(c.why||"").trim(), note:String(c.note||"").trim()});
+  });
+  return out.length>=2 ? out.slice(0,3) : null;
+}
+function shelfDigest(){
+  const rows=DB.products.filter(p=>p.qty>0).map(p=>
+    `- ${p.brand} ${p.name} [${p.cat}${p.active?", active":""}${p.soothing?", soothing":""}${p.light?", light":""}${p.oil?", oil cleanser":""}]`);
+  return rows.length ? rows.join("\n") : "(shelf is empty)";
+}
+async function fetchRecs(gap){
+  const key=localStorage.getItem("skinritual-aikey")||"";
+  const body={ model:"claude-sonnet-5", max_tokens:900,
+    messages:[{role:"user", content:
+      EDIT_PROMPT+"\n\nTHE GAP TO FILL:\n"+gap.title+" — "+gap.why+"\n\nTHEIR SHELF (in stock):\n"+shelfDigest() }]};
+  const r=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify(body)
+  });
+  const j=await r.json();
+  const text=(j.content&&j.content[0]&&j.content[0].text)||"";
+  const m=text.replace(/```json|```/g,"").match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("no json");
+  return normalizeRecs(JSON.parse(m[0]), gap);
+}
+async function startSuggest(gapKey){
+  const g=((DB.audit&&DB.audit.gaps)||[]).find(x=>x.key===gapKey); if(!g) return;
+  if(!localStorage.getItem("skinritual-aikey")){ _editKeyFor=gapKey; renderEditSheet(); return; }
+  _editKeyFor=null; _editFail=null; _editBusy=gapKey; renderEditSheet();
+  try{
+    const cands=await fetchRecs(g);
+    if(!cands) throw new Error("thin trio");
+    DB.audit.recs=DB.audit.recs||{};
+    DB.audit.recs[g.key]={ts:Date.now(), candidates:cands};
+    save();
+  }catch(e){ _editFail=gapKey; }
+  _editBusy=null; renderEditSheet();
+}
+function gapBodyHTML(g){
+  if(_editKeyFor===g.key) return `
+    <div style="margin-top:12px">
+      <p class="hint">Suggestions use your Anthropic key — the same one as AI Photo, stored only on this device. <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get a key →</a></p>
+      <div class="field"><label>Anthropic API key</label><input class="f" type="password" placeholder="sk-ant-…" data-keyin="${esc(g.key)}"></div>
+      <button class="btn primary" data-keysave="${esc(g.key)}">Save &amp; suggest →</button>
+    </div>`;
+  if(_editBusy===g.key) return `<div class="hint" style="margin:12px 0 0">✨ Curating three options…</div>`;
+  const rec=DB.audit && DB.audit.recs && DB.audit.recs[g.key];
+  if(rec && rec.candidates && rec.candidates.length){
+    return rec.candidates.map((c,i)=>`
+      <div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;min-width:0">
+            <div class="brand">${esc(c.brand)}</div>
+            <div class="pname">${esc(c.name)}</div>
+          </div>
+          <span class="tierchip">${esc(c.tier)}</span>
+          ${c.approxUsd!=null?`<span class="hint" style="margin:0;flex:none">~$${c.approxUsd}</span>`:""}
+          <button class="rm" data-wish="${esc(g.key)}|${i}" title="Save to wishlist">♡</button>
+          <button class="rm" data-dism="${esc(g.key)}|${i}" title="Dismiss">✕</button>
+        </div>
+        ${c.why?`<div class="hint" style="margin:5px 0 0">${esc(c.why)}</div>`:""}
+        ${c.note?`<div class="ainote" style="margin-top:7px">⚠️ ${esc(c.note)}</div>`:""}
+      </div>`).join("")
+      +`<div class="hint" style="margin:10px 0 0">Suggestions from AI knowledge — check availability &amp; price before buying.</div>`;
+  }
+  const fail=_editFail===g.key?`<div class="hint" style="margin:10px 0 0">Couldn't put a good trio together — try again.</div>`:"";
+  return fail+`<button class="btn ghost" data-suggest="${esc(g.key)}" style="margin-top:12px">✨ Get suggestions</button>`;
+}
+function wireEditSheet(body){
+  body.querySelectorAll("[data-suggest]").forEach(b=>b.onclick=()=>startSuggest(b.dataset.suggest));
+  body.querySelectorAll("[data-keysave]").forEach(b=>b.onclick=()=>{
+    const inp=body.querySelector(`[data-keyin="${CSS.escape(b.dataset.keysave)}"]`);
+    const k=inp?inp.value.trim():"";
+    if(!k){ toast("Paste your key first"); return; }
+    localStorage.setItem("skinritual-aikey",k);
+    startSuggest(b.dataset.keysave);
+  });
+  body.querySelectorAll("[data-wish]").forEach(b=>b.onclick=()=>{
+    const [gk,i]=b.dataset.wish.split("|");
+    const rec=DB.audit&&DB.audit.recs&&DB.audit.recs[gk]; if(!rec) return;
+    const c=rec.candidates[+i]; if(!c) return;
+    DB.wishlist=DB.wishlist||[];
+    if(!DB.wishlist.some(w=>normKey(w.brand+w.name)===normKey(c.brand+c.name)))
+      DB.wishlist.push({ts:Date.now(), gapKey:gk, cat:c.cat, name:c.name, brand:c.brand, tier:c.tier, approxUsd:c.approxUsd, why:c.why});
+    save(); toast("Saved to wishlist ♡"); renderEditSheet();
+  });
+  body.querySelectorAll("[data-dism]").forEach(b=>b.onclick=()=>{
+    const [gk,i]=b.dataset.dism.split("|");
+    const rec=DB.audit&&DB.audit.recs&&DB.audit.recs[gk]; if(!rec) return;
+    rec.candidates.splice(+i,1);
+    if(!rec.candidates.length) delete DB.audit.recs[gk];
+    save(); renderEditSheet();
+  });
+  body.querySelectorAll("[data-unwish]").forEach(b=>b.onclick=()=>{
+    DB.wishlist=(DB.wishlist||[]).filter(w=>String(w.ts)!==b.dataset.unwish);
+    save(); renderEditSheet();
+  });
+  if($("#wishHead")) $("#wishHead").onclick=()=>{ _wishOpen=!_wishOpen; renderEditSheet(); };
+}
+// A new product covering a wishlisted category offers to clear the note.
+function offerWishlistClear(cat){
+  const hit=(DB.wishlist||[]).find(w=>w.cat===cat);
+  if(hit && confirm(`This covers your wishlist note — clear "${hit.brand} ${hit.name}"?`)){
+    DB.wishlist=DB.wishlist.filter(w=>w!==hit); save();
+  }
 }
 
 /* ============================================================
@@ -1577,6 +1727,7 @@ function saveProduct(editId){
     else toast(`Added ${name}`);
   }
   save(); closeAdd(); renderChips(); renderShelf();
+  if(!editId) offerWishlistClear(cat);
 }
 function capAI(){
   const savedKey=localStorage.getItem("skinritual-aikey")||"";
@@ -1713,6 +1864,7 @@ function addFromProfile(pr){
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
   if(DB.trip){ DB.trip.kit.push(id); DB.trip.packed.push(id); }
   save(); toast(DB.trip?`Added to your Dopp kit ✈️`:`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
+  offerWishlistClear(pr.cat);
 }
 async function runAI(file){
   const key=localStorage.getItem("skinritual-aikey")||"";
