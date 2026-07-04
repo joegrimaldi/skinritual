@@ -33,9 +33,7 @@
     font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
     padding-bottom:calc(88px + env(safe-area-inset-bottom));
     touch-action:manipulation; overflow-x:hidden;
-    display:flex; flex-direction:column; min-height:100dvh;   /* sticky-footer column */
   }
-  #app{ flex:1 0 auto; display:flex; flex-direction:column; }  /* fills space so footer pins to bottom */
   .wrap{max-width:640px;margin:0 auto;padding:0 var(--gutter)}
   button{font-family:var(--sans)}
 
@@ -250,6 +248,7 @@
   .dots{display:flex;gap:3px;margin-left:auto;flex-wrap:wrap;max-width:120px;justify-content:flex-end}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:.5}
   .empty{text-align:center;color:var(--muted);font-size:14px;padding:34px 16px;line-height:1.5}
+  .emptybig{padding:64px 24px}
 
   /* ---------- Calendar ---------- */
   .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
@@ -349,7 +348,6 @@
   .rsteps .s b{color:var(--muted);font-weight:600}
 
   .bootskel{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
-  .appfoot{text-align:center;color:var(--muted);font-size:11px;letter-spacing:.4px;opacity:.65;padding:22px 0 6px;margin-top:auto}
 </style>
 </head>
 <body>
@@ -413,7 +411,6 @@
     <div class="sub">Streak, active scheduling, and history.</div>
     <div id="rhythmOut"></div>
   </section>
-  <footer class="appfoot" id="appFoot"></footer>
 </main>
 
 <nav class="tabs">
@@ -459,7 +456,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v32";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v33";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -821,7 +818,7 @@ function renderShelf(){
 
   const grid=$("#shelfGrid");
   if(!total){
-    grid.innerHTML=`<div class="empty" style="grid-column:1/-1">Your shelf is empty.<br>Tap the ＋ button to add your first product.</div>`;
+    grid.innerHTML=`<div class="empty emptybig" style="grid-column:1/-1"><div style="font-size:44px;margin-bottom:10px">🧴</div><div style="font-family:var(--serif);font-size:20px;color:var(--text);margin-bottom:4px">Your shelf is empty</div>Tap <b>＋ Add Product</b> to snap your first one.</div>`;
     return;
   }
 
@@ -1090,6 +1087,7 @@ function renderRhythm(){
         <button class="btn ghost" id="exportBtn" style="flex:1">⬇︎ Export backup</button>
         <label class="btn ghost" style="flex:1;cursor:pointer;margin:0">⬆︎ Import<input id="importFile" type="file" accept="application/json,.json" style="display:none"></label>
       </div>
+      <div style="text-align:center;font-size:11px;color:var(--muted);opacity:.7;margin-top:14px">skinritual · ${esc(APP_VERSION)}</div>
     </div>`;
   $("#logShaveBtn").onclick=logShaveNow;
   $("#logNoseBtn").onclick=logNoseWaxNow;
@@ -1773,7 +1771,6 @@ function switchView(v){
 function init(){
   load();
   $("#boot").style.display="none";
-  if($("#appFoot")) $("#appFoot").textContent=`skinritual · ${APP_VERSION}`;
   refreshStreak(); refreshTrip();
   renderChips(); renderShelf();
 
