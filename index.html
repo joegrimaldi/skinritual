@@ -421,7 +421,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v23";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v24";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -563,6 +563,11 @@ function buildRoutine(routineMode, opts={}){
   const pickedCat = c => [...picks].some(id=>{const p=DB.products.find(x=>x.id===id); return p && p.cat===c && p.qty>0;});
   const want = (c, on) => on || pickedCat(c);                       // a picked product forces its category on
   const pickInc = (pred, rank) => pick(p=>pred(p) && picks.has(p.id), rank) || pick(pred, rank); // prefer picked
+  // On shave nights, prefer soothing products for the hydrate/moisturize slots.
+  const pickSoothe = (pred, rank) => pick(p=>pred(p) && picks.has(p.id), rank)
+    || (shave ? pick(p=>pred(p) && p.soothing, rank) : null)
+    || pick(pred, rank);
+  const addSoothe = (pred, rank) => { const p=pickSoothe(pred, rank); add(p, null, (shave && p && p.soothing) ? ["🌿 soothing"] : []); };
 
   const isPM = routineMode==="pm";
   const enableActive = SC.active && isPM && !shave;                 // actives: PM only, never on shave nights
@@ -571,9 +576,9 @@ function buildRoutine(routineMode, opts={}){
     // ---------- MORNING ----------
     add(pickInc(p=>p.am && p.cat==="cleanser", preferFav));
     if(want("toner", SC.toner)) add(pickInc(p=>p.am && p.cat==="toner", preferMedicube));
-    add(pickInc(p=>p.am && p.hydra));
+    addSoothe(p=>p.am && p.hydra);
     if(want("eye_cream", SC.eye)) add(pickInc(p=>p.am && p.cat==="eye_cream"));
-    add(pickInc(p=>p.am && p.cat==="moisturizer", preferLight));
+    addSoothe(p=>p.am && p.cat==="moisturizer", preferLight);
     add(pickInc(p=>p.am && p.cat==="sunscreen", preferFav), null, ["always last · wait 2–3 min"]);
     inStock(p=>p.active).forEach(p=>skips.push({p, why:"No actives in the morning — actives are PM only."}));
   } else {
@@ -617,9 +622,10 @@ function buildRoutine(routineMode, opts={}){
       inStock(p=>p.active).forEach(p=>skips.push({p, why:"Quick refresh — skipping actives. Switch to Daily or Full to schedule one."}));
     }
 
-    add(pickInc(p=>p.pm && p.hydra));
+    addSoothe(p=>p.pm && p.hydra);
     if(want("eye_cream", SC.eye)) add(pickInc(p=>p.pm && p.cat==="eye_cream"));
-    add(pickInc(p=>p.cat==="night_cream") || pickInc(p=>p.pm && p.cat==="moisturizer", preferLight));
+    const night = pickSoothe(p=>p.cat==="night_cream") || pickSoothe(p=>p.pm && p.cat==="moisturizer", preferLight);
+    add(night, null, (shave && night && night.soothing) ? ["🌿 soothing"] : []);
   }
 
   // Force-include any picked product not yet placed (e.g. a spot treatment) —
@@ -1361,7 +1367,8 @@ const AI_PROMPT = `You are a skincare expert helping someone who does NOT know h
  "maxPerWeek": number,    // max uses per 7 days (0 = no limit)
  "verb": string,          // 1-2 word action label, e.g. "Retinol","Cleanse","Hydrate","SPF"
  "how": string,           // one concise sentence on how to apply it correctly
- "note": string           // short caution about combining/timing with other actives, else ""
+ "note": string,          // short caution about combining/timing with other actives, else ""
+ "soothing": boolean      // true if gentle/calming/barrier-repair/fragrance-free — good on freshly-shaved or irritated skin
 }`;
 
 // Coerce the AI JSON into a safe, complete product profile.
@@ -1380,6 +1387,7 @@ function normalizeProfile(p){
     cat, am:am?1:0, pm:pm?1:0, freq, active:active?1:0,
     cd, max, step:STEP_OF[cat]??3,
     verb:(p.verb||"").trim(), how:(p.how||"").trim(), note:(p.note||"").trim(),
+    soothing:p.soothing?1:0,
     hydra:(cat==="serum"&&!active)?1:0,
   };
 }
@@ -1396,6 +1404,7 @@ function showAIResult(pr){
     <div class="tagrow" style="margin-bottom:6px">
       <span class="pill" style="background:${ci.pill}">${esc(ci.label)}</span>
       ${pr.active?`<span class="tg">active</span>`:""}
+      ${pr.soothing?`<span class="tg">🌿 soothing</span>`:""}
     </div>
     <div class="airow"><span class="ak">When</span><span class="av">${esc(whenTags)}</span></div>
     <div class="airow"><span class="ak">How often</span><span class="av">${esc(sched.join(" · "))}</span></div>
@@ -1411,7 +1420,7 @@ function showAIResult(pr){
 function addFromProfile(pr){
   const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
   DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
-    step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra,
+    step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra, soothing:pr.soothing,
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
   save(); toast(`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
 }
