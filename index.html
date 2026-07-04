@@ -161,6 +161,24 @@
     font-size:12.5px;font-weight:700;padding:9px 13px;border-radius:var(--r-btn);margin-bottom:12px}
   .kitbadge{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;font-size:11px;
     padding:2px 7px;border-radius:var(--r-pill);z-index:2}
+  .qmeter{margin-bottom:12px}
+  .qbar{height:10px;border-radius:6px;background:rgba(140,100,68,.12);overflow:hidden}
+  .qfill{height:100%;background:var(--accent);border-radius:6px;transition:width .2s}
+  .qlab{font-size:12px;color:var(--muted);font-weight:600;margin-top:5px}
+  .kitrow{border:1px solid var(--line);border-radius:11px;background:var(--card);margin-bottom:6px;padding:4px 10px 4px 4px;
+    display:flex;align-items:center;flex-wrap:wrap;gap:4px}
+  .kitrow.on{border-color:var(--accent);background:rgba(140,100,68,.06)}
+  .kittoggle{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:none;background:none;cursor:pointer;
+    font-family:var(--sans);font-size:13.5px;color:var(--text);text-align:left;padding:7px 4px}
+  .kittoggle .amn b{color:var(--muted);font-weight:600}
+  .kitrow.on .kittoggle .amadd{color:var(--accent);font-weight:700}
+  .sizechip{flex:none;font-size:11px;font-weight:700;padding:4px 9px;border-radius:var(--r-pill);cursor:pointer;white-space:nowrap}
+  .sizechip.ok{background:rgba(111,143,95,.16);color:var(--ok)}
+  .sizechip.warn{background:rgba(185,138,62,.18);color:#8a6516}
+  .sizechip.solid{background:rgba(140,100,68,.08);color:var(--muted);cursor:default}
+  .sizechip.checked{background:rgba(63,107,130,.14);color:#3f6b82}
+  .kitfix{flex-basis:100%;font-size:11.5px;color:#8a6516;padding:2px 4px 6px 40px}
+  .kitfix button{background:none;border:none;color:var(--accent);font-weight:700;font-size:11.5px;cursor:pointer;padding:0}
   .venue{font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--r-pill);margin-left:6px;vertical-align:middle}
   .venue.shower{background:#dbe8ef;color:#3f6b82}
   .venue.sink{background:rgba(140,100,68,.12);color:var(--accent)}
@@ -439,7 +457,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v26";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v27";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -1198,7 +1216,8 @@ function openEdit(id){
 }
 function productToPref(p){
   return {name:p.name, brand:p.brand, cat:p.cat,
-    when: p.am&&p.pm?"both":(p.am?"am":"pm"), freq:p.freq, active:!!p.active};
+    when: p.am&&p.pm?"both":(p.am?"am":"pm"), freq:p.freq, active:!!p.active,
+    sizeStr: p.sizeMl!=null ? p.sizeMl+"ml" : ""};
 }
 function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
 function stopScan(){
@@ -1332,6 +1351,7 @@ function capManual(pref={}, editId=null){
       <option value="both">Morning & Evening</option><option value="am">Morning only</option><option value="pm">Evening only</option>
     </select></div>
     <div class="field"><label>Frequency</label><select class="f" id="mFreq">${freqs.map(f=>`<option>${f}</option>`).join("")}</select></div>
+    <div class="field"><label>Container size (for travel/TSA — optional)</label><input class="f" id="mSize" value="${esc(pref.sizeStr||"")}" placeholder="e.g. 50ml or 1.7oz"></div>
     <label class="checkrow"><input type="checkbox" id="mActive"> This is an active (retinol / acid / exfoliant — schedule it with cooldowns)</label>
     <button class="btn primary" id="mSave">${editId?"Save changes →":"Add to My Shelf →"}</button>
     ${editId?`<button class="btn ghost" id="mDelete" style="margin-top:8px">Remove from shelf</button>`:""}`;
@@ -1347,6 +1367,7 @@ function saveProduct(editId){
   const name=$("#mName").value.trim(), brand=$("#mBrand").value.trim();
   if(!name){ toast("Add a product name"); return; }
   const cat=$("#mCat").value, when=$("#mWhen").value, freq=$("#mFreq").value, isActive=$("#mActive").checked;
+  const sizeMl=parseSize($("#mSize")?$("#mSize").value:"");
   const fields={
     name, brand:brand||"—", cat,
     am:when==="pm"?0:1, pm:when==="am"?0:1,
@@ -1354,6 +1375,7 @@ function saveProduct(editId){
     cd:isActive?2:0, max:isActive?4:0,
     active:isActive?1:0,
     hydra:(cat==="serum"&&!isActive)?1:0,
+    sizeMl,
   };
   if(editId){
     const p=DB.products.find(x=>x.id===editId);
@@ -1439,7 +1461,9 @@ const AI_PROMPT = `You are a skincare expert helping someone who does NOT know h
  "verb": string,          // 1-2 word action label, e.g. "Retinol","Cleanse","Hydrate","SPF"
  "how": string,           // one concise sentence on how to apply it correctly
  "note": string,          // short caution about combining/timing with other actives, else ""
- "soothing": boolean      // true if gentle/calming/barrier-repair/fragrance-free — good on freshly-shaved or irritated skin
+ "soothing": boolean,     // true if gentle/calming/barrier-repair/fragrance-free — good on freshly-shaved or irritated skin
+ "sizeMl": number,        // net container size in mL if printed ("50 mL" or "1.7 fl oz"→50); 0 if unreadable
+ "form": "liquid"|"solid"|"aerosol"   // liquid=cream/gel/lotion/serum; solid=sheet mask/stick/powder/patch; aerosol=spray can
 }`;
 
 // Coerce the AI JSON into a safe, complete product profile.
@@ -1459,6 +1483,8 @@ function normalizeProfile(p){
     cd, max, step:STEP_OF[cat]??3,
     verb:(p.verb||"").trim(), how:(p.how||"").trim(), note:(p.note||"").trim(),
     soothing:p.soothing?1:0,
+    sizeMl:(Number.isFinite(p.sizeMl)&&p.sizeMl>=1&&p.sizeMl<=1000)?Math.round(p.sizeMl):null,
+    form:["liquid","solid","aerosol"].includes(p.form)?p.form:null,
     hydra:(cat==="serum"&&!active)?1:0,
   };
 }
@@ -1492,6 +1518,7 @@ function addFromProfile(pr){
   const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
   DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
     step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra, soothing:pr.soothing,
+    sizeMl:pr.sizeMl, form:pr.form,
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
   if(DB.trip){ DB.trip.kit.push(id); DB.trip.packed.push(id); }
   save(); toast(DB.trip?`Added to your Dopp kit ✈️`:`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
@@ -1554,43 +1581,112 @@ async function forceUpdate(){
    ============================================================ */
 let tripDraft = new Set();
 let tripNights = 3;
-function openTrip(){ if(!DB.trip){ tripDraft=new Set(); tripNights=3; } $("#tripModal").classList.add("on"); renderTripSheet(); }
+let tripBag = "carryon";        // planner staging
+let tripChecked = new Set();    // planner staging: items moved to checked bag
+
+// ---- TSA 3-1-1 logic ----
+const TSA = { maxMl:100, quartBagMl:950 };   // ≤100 mL/container; quart bag ≈ 950 mL usable
+const OZ_TO_ML = 29.5735;
+function parseSize(str){ if(str==null)return null; const s=String(str).toLowerCase().trim(); if(!s)return null;
+  const n=parseFloat(s); if(!isFinite(n))return null; const ml=/oz/.test(s)?n*OZ_TO_ML:n; return Math.round(Math.max(1,Math.min(1000,ml))); }
+function formOf(p){ return p.form || (["sheet_mask","spot"].includes(p.cat)?"solid":"liquid"); }
+function isLiquidP(p){ const f=formOf(p); return f==="liquid"||f==="aerosol"; }
+function effMl(p){ return p.decant!=null ? p.decant : (p.sizeMl!=null ? p.sizeMl : null); }
+function carryOk(p){ if(!isLiquidP(p)) return true; const m=effMl(p); return m!=null && m<=TSA.maxMl; }
+
+// ---- unified kit/bag/checked accessors (work on active trip OR draft) ----
+function inKit(id){ return DB.trip ? DB.trip.kit.includes(id) : tripDraft.has(id); }
+function toggleKit(id){ if(DB.trip){ const i=DB.trip.kit.indexOf(id); i>=0?DB.trip.kit.splice(i,1):DB.trip.kit.push(id); save(); } else { tripDraft.has(id)?tripDraft.delete(id):tripDraft.add(id); } }
+function curKit(){ return DB.trip ? DB.trip.kit.slice() : [...tripDraft]; }
+function curBag(){ return DB.trip ? (DB.trip.bag||"carryon") : tripBag; }
+function setBag(b){ if(DB.trip){ DB.trip.bag=b; save(); } else tripBag=b; }
+function isChecked(id){ return DB.trip ? (DB.trip.checked||[]).includes(id) : tripChecked.has(id); }
+function setChecked(id,on){ if(DB.trip){ const c=DB.trip.checked||(DB.trip.checked=[]); const i=c.indexOf(id); if(on&&i<0)c.push(id); if(!on&&i>=0)c.splice(i,1); save(); } else { on?tripChecked.add(id):tripChecked.delete(id); } }
+
+function openTrip(){ if(!DB.trip){ tripDraft=new Set(); tripNights=3; tripBag="carryon"; tripChecked=new Set(); } $("#tripModal").classList.add("on"); renderTripSheet(); }
 function closeTrip(){ $("#tripModal").classList.remove("on"); }
-function tripKitSet(){ return DB.trip ? new Set(DB.trip.kit) : tripDraft; }
+function afterKitChange(){ save(); renderTripSheet(); refreshTrip(); renderShelf(); if($("#view-ritual").classList.contains("on")) renderRitual(); }
+
 function renderTripSheet(){
   const body=$("#tripBody"); if(!body) return;
   const active=!!DB.trip;
   const stock=DB.products.filter(p=>p.qty>0);
-  const kit=tripKitSet();
+  const kit=curKit();
   $("#tripTitle").textContent = active ? "Your Dopp kit" : "Pack your Dopp kit";
   if(!stock.length){ body.innerHTML=`<div class="empty">Add products on the Shelf tab first.</div>`; return; }
+
+  const carryon = curBag()==="carryon";
+  const kitLiquids = kit.map(id=>DB.products.find(p=>p.id===id)).filter(p=>p&&isLiquidP(p)&&!isChecked(p.id));
+  const load = kitLiquids.reduce((s,p)=>{const m=effMl(p); return s+(m!=null?m:0);},0);
+  const over = kitLiquids.filter(p=>!carryOk(p));
+  const pct = Math.min(100, Math.round(load/TSA.quartBagMl*100));
+
   let html = active
-    ? `<div class="amsub">✈️ ${DB.trip.nights}-night trip · ${kit.size} item${kit.size===1?"":"s"} packed. Tap to add/remove — rituals update live.</div>`
-    : `<div class="tripnights"><span>Nights</span><div class="qbtns"><button class="qbtn" data-n="-1">−</button><span id="tripN" class="qn">${tripNights}</span><button class="qbtn" data-n="1">+</button></div></div>
-       <div class="amsub">Pick what to pack — travel rituals build only from these.</div>`;
+    ? `<div class="amsub">✈️ ${DB.trip.nights}-night trip · ${kit.length} item${kit.length===1?"":"s"} packed.</div>`
+    : `<div class="tripnights"><span>Nights</span><div class="qbtns"><button class="qbtn" data-n="-1">−</button><span id="tripN" class="qn">${tripNights}</span><button class="qbtn" data-n="1">+</button></div></div>`;
+  html += `<div class="segwrap" id="bagSeg" style="margin:4px 0 12px">
+      <button data-bag="carryon" class="${carryon?"on":""}">🧴 Carry-on</button>
+      <button data-bag="checked" class="${carryon?"":"on"}">🧳 Checked</button></div>`;
+  if(kit.length && carryon){
+    html += `<div class="qmeter"><div class="qbar"><div class="qfill" style="width:${pct}%"></div></div>
+      <div class="qlab">🧴 Liquids bag: ${Math.round(load)} / ~${TSA.quartBagMl} mL${over.length?` · ⚠️ ${over.length} over 100 mL`:""}</div></div>`;
+  } else if(kit.length && !carryon){
+    html += `<div class="amsub">🧳 Checked bag — no liquid size limits. Sizes shown for packing only.</div>`;
+  }
+  html += `<div class="amsub">${active?"Tap to add/remove — rituals update live.":"Pick what to pack — travel rituals build only from these."}</div>`;
+
   const byCat={}; stock.forEach(p=>{ (byCat[p.cat]=byCat[p.cat]||[]).push(p); });
   Object.keys(byCat).sort((a,b)=>(STEP_OF[a]??9)-(STEP_OF[b]??9)).forEach(cat=>{
     html+=`<div class="amcat" style="margin:14px 0 6px">${catInfo(cat).emoji} ${esc(catInfo(cat).label)}</div>`;
-    html+=byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>
-      `<button class="amitem ${kit.has(p.id)?"on":""}" data-kit="${p.id}"><span class="amadd">${kit.has(p.id)?"✓":"＋"}</span><div class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</div></button>`
-    ).join("");
+    html+=byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>{
+      const k=inKit(p.id), liq=isLiquidP(p), chk=isChecked(p.id), m=effMl(p);
+      let chip;
+      if(!liq) chip=`<span class="sizechip solid">solid</span>`;
+      else if(chk) chip=`<span class="sizechip checked" data-uncheck="${p.id}">✈️ checked</span>`;
+      else if(m==null) chip=`<span class="sizechip warn" data-size="${p.id}">size?</span>`;
+      else chip=`<span class="sizechip ${m<=TSA.maxMl?"ok":"warn"}" data-size="${p.id}">${m} mL${p.decant!=null?" · decant":""}</span>`;
+      const fix = (k&&liq&&!chk&&carryon&&!carryOk(p))
+        ? `<div class="kitfix">⚠️ over 100 mL — <button data-fix="swap" data-id="${p.id}">swap smaller</button> · <button data-fix="decant" data-id="${p.id}">decant</button> · <button data-fix="checked" data-id="${p.id}">checked bag</button></div>` : "";
+      return `<div class="kitrow ${k?"on":""}">
+        <button class="kittoggle" data-kit="${p.id}"><span class="amadd">${k?"✓":"＋"}</span><span class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</span></button>
+        ${chip}${fix}</div>`;
+    }).join("");
   });
   html += active
     ? `<button class="btn ghost" id="endTripBtn" style="margin-top:18px">End trip — back to full shelf</button>`
     : `<button class="btn primary" id="startTripBtn" style="margin-top:18px">Start trip →</button>`;
   body.innerHTML=html;
+
   body.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{ tripNights=Math.max(1,Math.min(60,tripNights+(+b.dataset.n))); $("#tripN").textContent=tripNights; });
-  body.querySelectorAll("[data-kit]").forEach(b=>b.onclick=()=>{
-    const id=+b.dataset.kit;
-    if(DB.trip){ const i=DB.trip.kit.indexOf(id); if(i>=0)DB.trip.kit.splice(i,1); else DB.trip.kit.push(id); save(); renderTripSheet(); refreshTrip(); renderShelf(); }
-    else { tripDraft.has(id)?tripDraft.delete(id):tripDraft.add(id); renderTripSheet(); }
+  body.querySelectorAll("[data-bag]").forEach(b=>b.onclick=()=>{ setBag(b.dataset.bag); renderTripSheet(); });
+  body.querySelectorAll("[data-kit]").forEach(b=>b.onclick=()=>{ toggleKit(+b.dataset.kit); afterKitChange(); });
+  body.querySelectorAll("[data-size]").forEach(b=>b.onclick=()=>{
+    const p=DB.products.find(x=>x.id===+b.dataset.size); if(!p) return;
+    const v=prompt(`Container size for ${p.name} (mL, or e.g. 1.7oz):`, p.sizeMl!=null?String(p.sizeMl):"");
+    if(v==null) return; const ml=parseSize(v);
+    if(ml){ p.sizeMl=ml; save(); renderTripSheet(); } else if(v.trim()) toast("Didn't understand that size");
   });
+  body.querySelectorAll("[data-uncheck]").forEach(b=>b.onclick=()=>{ setChecked(+b.dataset.uncheck,false); renderTripSheet(); refreshTrip(); });
+  body.querySelectorAll("[data-fix]").forEach(b=>b.onclick=()=>tripFix(b.dataset.fix, +b.dataset.id));
   if($("#startTripBtn")) $("#startTripBtn").onclick=startTrip;
   if($("#endTripBtn")) $("#endTripBtn").onclick=endTrip;
 }
+function tripFix(kind, id){
+  const p=DB.products.find(x=>x.id===id); if(!p) return;
+  if(kind==="swap"){
+    const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !inKit(x.id) && isLiquidP(x) && effMl(x)!=null && effMl(x)<=TSA.maxMl);
+    if(!alt){ toast(`No smaller ${catInfo(p.cat).label.toLowerCase()} on your shelf`); return; }
+    toggleKit(id); if(!inKit(alt.id)) toggleKit(alt.id);
+    toast(`Swapped in ${alt.name}`); afterKitChange();
+  } else if(kind==="decant"){
+    p.decant=TSA.maxMl; save(); toast("Marked decanted (≤100 mL travel bottle)"); renderTripSheet(); refreshTrip();
+  } else if(kind==="checked"){
+    setChecked(id,true); toast("Moved to checked bag"); renderTripSheet(); refreshTrip();
+  }
+}
 function startTrip(){
   if(!tripDraft.size){ toast("Pick at least one product to pack"); return; }
-  DB.trip={ start:Date.now(), nights:tripNights, bag:"carryon", kit:[...tripDraft], packed:[] };
+  DB.trip={ start:Date.now(), nights:tripNights, bag:tripBag, kit:[...tripDraft], packed:[], checked:[...tripChecked] };
   save(); closeTrip(); refreshTrip(); toast("Trip started ✈️"); renderShelf();
   if($("#view-ritual").classList.contains("on")) renderRitual();
 }
