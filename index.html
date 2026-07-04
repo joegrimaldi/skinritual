@@ -477,7 +477,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v37";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v37.1";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -532,7 +532,7 @@ const TIERS = {
   refresh: [ {t:"Sink",  s:"quick midday reset",    mode:"refresh", scope:"quick"},
              {t:"Shower",s:"stretch it · ≤20 min",  mode:"refresh", scope:"daily", shower:true} ],
   evening: [ {t:"Quick", s:"bedtime essentials",    mode:"pm", scope:"daily"},
-             {t:"Full facial", s:"the works · ≤60 min", mode:"pm", scope:"full", shower:true} ],
+             {t:"Full facial", s:"the works · ≤60 min", mode:"pm", scope:"full"} ],   // sink only — never a shower ritual
 };
 function resolveTier(){ return TIERS[period][tierIx] || TIERS[period][0]; }
 function updateTierLabels(){ const a=TIERS[period];
