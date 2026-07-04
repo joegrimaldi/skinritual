@@ -222,6 +222,12 @@
   .cd-entry ul{margin:0;padding-left:18px}
   .cd-entry li{font-size:13px;line-height:1.5}
   .cd-none{font-size:13px;color:var(--muted)}
+  .cd-mode{display:flex;align-items:center}
+  .cd-del{margin-left:auto;background:none;border:none;color:var(--muted);opacity:.55;font-size:14px;cursor:pointer;padding:2px 4px;flex:none}
+  .cd-del:active{opacity:1}
+  .cd-add{font-size:12px;color:var(--muted);margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .cd-addbtn{border:1px solid var(--line);background:var(--card);color:var(--accent);font-family:var(--sans);
+    font-size:12px;font-weight:600;padding:5px 10px;border-radius:var(--r-pill);cursor:pointer;margin:4px 2px 0;display:inline-block}
 
   /* ---------- AI result card ---------- */
   .airow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}
@@ -396,7 +402,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v18";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v19";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -980,14 +986,16 @@ function renderCalendar(){
       (entries.length ? entries.map(e=>{
         const t=new Date(e.ts).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
         const hasProds = e.products && e.products.length;
+        const del=`<button class="cd-del" data-del="${e.ts}" title="Delete this entry">✕</button>`;
         if(!hasProds){
           const g=[e.shave?"🪒 Shave":"", e.noseWax?"👃 Nose wax":""].filter(Boolean).join(" + ") || "Logged";
-          return `<div class="cd-entry"><div class="cd-mode">${esc(g)} · ${esc(t)}</div></div>`;
+          return `<div class="cd-entry"><div class="cd-mode">${esc(g)} · ${esc(t)}${del}</div></div>`;
         }
         const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
         const prods=(e.products||[]).map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
-        return `<div class="cd-entry"><div class="cd-mode">${esc(head)}</div><ul>${prods}</ul></div>`;
-      }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)+`</div>`;
+        return `<div class="cd-entry"><div class="cd-mode">${esc(head)}${del}</div><ul>${prods}</ul></div>`;
+      }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)
+      +`<div class="cd-add">Add to this day: <button class="cd-addbtn" data-add="shave">🪒 Shave</button> <button class="cd-addbtn" data-add="noseWax">👃 Nose wax</button></div></div>`;
   }
 
   wrap.innerHTML=`
@@ -1002,6 +1010,25 @@ function renderCalendar(){
   $("#calPrev").onclick=()=>{ calM--; if(calM<0){calM=11;calY--;} calSel=null; renderCalendar(); };
   $("#calNext").onclick=()=>{ calM++; if(calM>11){calM=0;calY++;} calSel=null; renderCalendar(); };
   wrap.querySelectorAll(".calday[data-day]").forEach(b=>b.onclick=()=>{ calSel=(calSel===b.dataset.day?null:b.dataset.day); renderCalendar(); });
+  wrap.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delLogEntry(+b.dataset.del));
+  wrap.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>addRetroGroom(calSel, b.dataset.add));
+}
+function delLogEntry(ts){
+  const e=DB.log.find(x=>x.ts===ts); if(!e) return;
+  const label = e.shave&&!e.products.length ? "shave" : e.noseWax&&!e.products.length ? "nose wax" : "ritual";
+  if(!confirm(`Delete this ${label} entry?`)) return;
+  DB.log=DB.log.filter(x=>x.ts!==ts);
+  save(); buzz(15); refreshStreak(); toast("Entry deleted"); renderRhythm();
+}
+function addRetroGroom(dayK, kind){
+  if(!dayK) return;
+  const [yy,mm,dd]=dayK.split("-").map(Number);
+  let ts=new Date(yy,mm,dd,12,0,0).getTime();
+  while(DB.log.some(e=>e.ts===ts)) ts++;                 // keep timestamps unique
+  const entry={ts, mode:"pm", products:[]};
+  if(kind==="shave") entry.shave=true; else entry.noseWax=true;
+  DB.log.push(entry);
+  save(); buzz(15); toast(kind==="shave"?"Shave added 🪒":"Nose wax added 👃"); renderRhythm();
 }
 
 /* ============================================================
