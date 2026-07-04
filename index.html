@@ -134,9 +134,9 @@
   .segwrap button{flex:1;border:none;background:none;color:var(--muted);font-weight:700;font-size:14px;
     padding:10px;border-radius:9px;cursor:pointer;transition:.15s}
   .segwrap button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
-  #scopeSeg button{flex-direction:column;gap:1px;line-height:1.1;padding:8px 4px}
-  #scopeSeg .segt{font-size:13px}
-  #scopeSeg .segsub{font-size:10px;font-weight:600;opacity:.7}
+  #tierSeg button{flex-direction:column;gap:1px;line-height:1.1;padding:8px 4px}
+  #tierSeg .segt{font-size:13px}
+  #tierSeg .segsub{font-size:10px;font-weight:600;opacity:.7}
   .togrow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
   .tog{flex:1 1 30%;border:1px solid var(--line);background:var(--card);color:var(--muted);font-family:var(--sans);
     font-weight:600;font-size:13px;padding:11px 8px;border-radius:var(--r-btn);cursor:pointer;transition:.15s;white-space:nowrap}
@@ -385,22 +385,21 @@
 
   <!-- RITUAL -->
   <section class="view" id="view-ritual">
-    <h2 class="head">Tonight's Ritual</h2>
+    <h2 class="head">Your Ritual</h2>
     <div class="sub">Built from what's on your shelf, in the right order.</div>
-    <div class="segwrap" id="ritualSeg">
-      <button data-mode="am" class="on">☀️ Morning</button>
-      <button data-mode="pm">🌙 Evening</button>
+    <div class="segwrap" id="periodSeg">
+      <button data-period="morning" class="on">☀️ Morning</button>
+      <button data-period="refresh">🔆 Refresh</button>
+      <button data-period="evening">🌙 Evening</button>
     </div>
-    <div class="segwrap" id="scopeSeg">
-      <button data-scope="quick"><span class="segt">Quick</span><span class="segsub">&lt;9 min</span></button>
-      <button data-scope="daily" class="on"><span class="segt">Daily</span><span class="segsub">~15 min</span></button>
-      <button data-scope="full"><span class="segt">Full facial</span><span class="segsub">33 min+</span></button>
+    <div class="segwrap" id="tierSeg">
+      <button data-tier="0" class="on"><span class="segt" id="tier0t">Quick</span><span class="segsub" id="tier0s"></span></button>
+      <button data-tier="1"><span class="segt" id="tier1t">Full</span><span class="segsub" id="tier1s"></span></button>
     </div>
     <div class="togrow">
       <button class="tog" id="shaveTog">🪒 Shave</button>
       <button class="tog" id="noseTog">👃 Nose wax</button>
       <button class="tog" id="dryTog">🖌️ Dry brush</button>
-      <button class="tog" id="showerTog">🚿 Add shower</button>
     </div>
     <div id="ritualOut" style="margin-top:16px"></div>
   </section>
@@ -456,7 +455,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v33.3";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v34";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -502,12 +501,23 @@ const howtoFor = p => (p.verb && p.how) ? [p.verb, p.how] : (CAT_HOWTO[p.cat] ||
    State
    ============================================================ */
 let DB = {ver:2, products:[], log:[]};
-let mode = "am";     // ritual mode
-let scope = "daily"; // 'quick' | 'daily' | 'full'
+let period = "morning";   // 'morning' | 'refresh' | 'evening'
+let tierIx = 0;           // 0 or 1 within the period's two options
+// Time-of-day → two tiers each. Maps to engine {mode, scope, shower}.
+const TIERS = {
+  morning: [ {t:"Quick", s:"basics, out the door", mode:"am", scope:"quick"},
+             {t:"Full",  s:"a bit more · ≤20 min",  mode:"am", scope:"daily"} ],
+  refresh: [ {t:"Sink",  s:"quick midday reset",    mode:"refresh", scope:"quick"},
+             {t:"Shower",s:"stretch it · ≤20 min",  mode:"refresh", scope:"daily", shower:true} ],
+  evening: [ {t:"Quick", s:"bedtime essentials",    mode:"pm", scope:"daily"},
+             {t:"Full facial", s:"the works · ≤60 min", mode:"pm", scope:"full", shower:true} ],
+};
+function resolveTier(){ return TIERS[period][tierIx] || TIERS[period][0]; }
+function updateTierLabels(){ const a=TIERS[period];
+  if($("#tier0t")){ $("#tier0t").textContent=a[0].t; $("#tier0s").textContent=a[0].s; $("#tier1t").textContent=a[1].t; $("#tier1s").textContent=a[1].s; } }
 let includeShave = false;
 let includeNoseWax = false;
 let includeDryBrush = false;
-let includeShower = false; // sink is always assumed; toggle adds shower venue badges
 let picks = new Set(); // product ids the user hand-picked to include
 let openCats = new Set(); // expanded categories in the "Add to tonight" menu
 // Recommended cadence (days) + minutes for grooming activities. dryBrush=1 → up to daily.
@@ -644,9 +654,22 @@ function buildRoutine(routineMode, opts={}){
   const addSoothe = (pred, rank) => { const p=pickSoothe(pred, rank); add(p, null, (shave && p && p.soothing) ? ["🌿 soothing"] : []); };
 
   const isPM = routineMode==="pm";
+  const isRefresh = routineMode==="refresh";
   const enableActive = SC.active && isPM && !shave;                 // actives: PM only, never on shave nights
 
-  if(!isPM){
+  if(isRefresh){
+    // ---------- MIDDAY REFRESH ---------- gentle, no actives, moisturizer (not night cream), SPF optional
+    add(pickInc(p=>p.cat==="cleanser" && !p.oil, preferFav), ["Refresh","A quick cleanse or a damp-cloth wipe to reset midday."]);
+    if(want("toner", SC.toner)) add(pickInc(p=>p.cat==="toner", preferMedicube));
+    addSoothe(p=>p.hydra);
+    if(want("eye_cream", SC.eye)) add(pickInc(p=>p.cat==="eye_cream"));
+    addSoothe(p=>p.cat==="moisturizer", preferLight);
+    // SPF is optional midday — include it before ~4pm, otherwise note it's skippable
+    const hr=new Date().getHours();
+    if(hr<16) add(pickInc(p=>p.cat==="sunscreen", preferFav), null, ["optional · reapply if you'll be outside"]);
+    else { const s=pick(p=>p.cat==="sunscreen"); if(s) skips.push({p:s, why:"Late in the day — SPF optional; skip if you're in for the evening."}); }
+    inStock(p=>p.active).forEach(p=>skips.push({p, why:"Midday refresh — save actives for your evening ritual."}));
+  } else if(!isPM){
     // ---------- MORNING ----------
     add(pickInc(p=>p.am && p.cat==="cleanser", preferFav));
     if(want("toner", SC.toner)) add(pickInc(p=>p.am && p.cat==="toner", preferMedicube));
@@ -900,7 +923,8 @@ function groomDue(kind){ return groomDaysAgo(kind) >= CADENCE[kind]; }
 function renderRitual(){
   const out=$("#ritualOut"); if(!out) return;
   [...picks].forEach(id=>{ if(!DB.products.some(p=>p.id===id && p.qty>0)) picks.delete(id); }); // prune stale picks
-  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, noseWax:includeNoseWax, dryBrush:includeDryBrush, picks:[...picks]});
+  const R=resolveTier(); const shower=!!R.shower;
+  const {steps,skips}=buildRoutine(R.mode, {scope:R.scope, shave:includeShave, noseWax:includeNoseWax, dryBrush:includeDryBrush, picks:[...picks]});
   // reflect "due" state on the grooming toggles
   [["shave","#shaveTog",includeShave],["noseWax","#noseTog",includeNoseWax],["dryBrush","#dryTog",includeDryBrush]]
     .forEach(([k,sel,on])=>{ const el=$(sel); if(el) el.classList.toggle("due", !on && groomDue(k)); });
@@ -908,7 +932,7 @@ function renderRitual(){
 
   const mins=estimateMinutes(steps);
   let html = DB.trip ? `<div class="tripbanner">✈️ Building from your Dopp kit · ${DB.trip.kit.length} item${DB.trip.kit.length===1?"":"s"}</div>` : "";
-  html += `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""}${includeDryBrush?" · 🖌️ dry brush":""} · ${includeShower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
+  html += `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""}${includeDryBrush?" · 🖌️ dry brush":""} · ${shower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
 
   // Cadence recommendations: grooming that's due but not toggled on.
   const recs=[["shave",includeShave],["noseWax",includeNoseWax],["dryBrush",includeDryBrush]]
@@ -925,7 +949,7 @@ function renderRitual(){
     const metaItems = s.groom ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
     const meta = metaItems.map(m=>`<span>${esc(m)}</span>`).join("");
     const who = s.groom ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
-    const vb = includeShower ? `<span class="venue ${stepVenue(s)}">${stepVenue(s)==="shower"?"🚿 Shower":"🚰 Sink"}</span>` : "";
+    const vb = shower ? `<span class="venue ${stepVenue(s)}">${stepVenue(s)==="shower"?"🚿 Shower":"🚰 Sink"}</span>` : "";
     const rm = picks.has(s.p.id) ? `<button class="stepx" data-unpick="${s.p.id}" title="Remove">✕</button>` : "";
     return `<div class="step">
       <div class="stepn">${s.n}</div>
@@ -939,9 +963,12 @@ function renderRitual(){
     </div>`;
   }).join("");
 
-  html += mode==="am"
-    ? `<div class="protip"><div class="t">Pro tip</div><div class="b">Mornings are about protection. Keep it simple and finish with SPF — reapply midday if you're outdoors. Save every active for the evening.</div></div>`
-    : `<div class="protip"><div class="t">Pro tip</div><div class="b">Evenings are about repair. Oil-cleanse first on dry skin to melt the day off, then one active at most. Let each layer absorb before the next.</div></div>`;
+  const protips={
+    morning:"Mornings are about protection. Keep it simple and finish with SPF. Save every active for the evening.",
+    refresh:"A midday reset — freshen, hydrate, and go. No actives now; SPF only if you're headed back into the sun.",
+    evening:"Evenings are about repair. Oil-cleanse off the day, one active at most, and let each layer absorb."
+  };
+  html += `<div class="protip"><div class="t">Pro tip</div><div class="b">${protips[period]}</div></div>`;
 
   // Combined "add to tonight" menu: everything on the shelf NOT already in the
   // ritual, grouped by category, with any skip reason. Tap to include.
@@ -969,9 +996,10 @@ function renderRitual(){
 
   const ids=steps.filter(s=>s.p.id>0).map(s=>s.p.id);
   const extra=[includeShave?"shave":"", includeNoseWax?"nose wax":"", includeDryBrush?"dry brush":""].filter(Boolean).join(" + ");
-  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${extra?" + "+extra:""}</button>`;
+  const periodWord={morning:"morning",refresh:"refresh",evening:"evening"}[period];
+  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${periodWord}${extra?" + "+extra:""}</button>`;
   out.innerHTML=html;
-  $("#logBtn").onclick=()=>logRoutine(ids, includeShave, includeNoseWax, includeDryBrush);
+  $("#logBtn").onclick=()=>logRoutine(ids, includeShave, includeNoseWax, includeDryBrush, R.mode);
   out.querySelectorAll("[data-groomrec]").forEach(b=>b.onclick=()=>{
     const k=b.dataset.groomrec;
     if(k==="shave"){ includeShave=true; $("#shaveTog").classList.add("on"); }
@@ -987,9 +1015,9 @@ function renderRitual(){
   });
   out.querySelectorAll("[data-unpick]").forEach(b=>b.onclick=()=>{ picks.delete(+b.dataset.unpick); renderRitual(); });
 }
-function logRoutine(ids, shave, noseWax, dryBrush){
+function logRoutine(ids, shave, noseWax, dryBrush, logMode){
   const now=Date.now();
-  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush, travel:!!DB.trip});
+  DB.log.push({ts:now, mode:logMode||"pm", products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush, travel:!!DB.trip});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
   save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax, dryBrush);
 }
@@ -1135,7 +1163,8 @@ function renderCalendar(){
     const entries=byDay[dk]||[];
     const hasAM=entries.some(e=>e.mode==="am" && e.products && e.products.length);
     const hasPM=entries.some(e=>e.mode==="pm" && e.products && e.products.length);
-    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"")+(entries.some(e=>e.dryBrush)?"🖌️":"")+(entries.some(e=>e.travel)?"✈️":"");
+    const hasRe=entries.some(e=>e.mode==="refresh" && e.products && e.products.length);
+    const mk=(hasAM?"☀️":"")+(hasRe?"🔆":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"")+(entries.some(e=>e.dryBrush)?"🖌️":"")+(entries.some(e=>e.travel)?"✈️":"");
     const cls=["calday"];
     if(entries.length) cls.push("has");
     if(dk===todayKey) cls.push("today");
@@ -1157,7 +1186,7 @@ function renderCalendar(){
           const g=[e.shave?"🪒 Shave":"", e.noseWax?"👃 Nose wax":"", e.dryBrush?"🖌️ Dry brush":""].filter(Boolean).join(" + ") || "Logged";
           return `<div class="cd-entry"><div class="cd-mode">${esc(g)} · ${esc(t)}${del}</div></div>`;
         }
-        const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.dryBrush?"🖌️ ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
+        const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.dryBrush?"🖌️ ":"")+(e.mode==="am"?"☀️ Morning":e.mode==="refresh"?"🔆 Refresh":"🌙 Evening")+" · "+t;
         const prods=(e.products||[]).map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
         return `<div class="cd-entry"><div class="cd-mode">${esc(head)}${del}</div><ul>${prods}</ul></div>`;
       }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)
@@ -1771,24 +1800,24 @@ function switchView(v){
 function init(){
   load();
   $("#boot").style.display="none";
-  refreshStreak(); refreshTrip();
+  refreshStreak(); refreshTrip(); updateTierLabels();
   renderChips(); renderShelf();
 
   $$("nav.tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
-  $$("#ritualSeg button").forEach(b=>b.onclick=()=>{
-    mode=b.dataset.mode;
-    $$("#ritualSeg button").forEach(x=>x.classList.toggle("on",x===b));
-    renderRitual();
+  $$("#periodSeg button").forEach(b=>b.onclick=()=>{
+    period=b.dataset.period; tierIx=0;
+    $$("#periodSeg button").forEach(x=>x.classList.toggle("on",x===b));
+    $$("#tierSeg button").forEach((x,i)=>x.classList.toggle("on",i===0));
+    updateTierLabels(); renderRitual();
   });
-  $$("#scopeSeg button").forEach(b=>b.onclick=()=>{
-    scope=b.dataset.scope;
-    $$("#scopeSeg button").forEach(x=>x.classList.toggle("on",x===b));
+  $$("#tierSeg button").forEach(b=>b.onclick=()=>{
+    tierIx=+b.dataset.tier;
+    $$("#tierSeg button").forEach(x=>x.classList.toggle("on",x===b));
     renderRitual();
   });
   $("#shaveTog").onclick=()=>{ includeShave=!includeShave; $("#shaveTog").classList.toggle("on",includeShave); renderRitual(); };
   $("#noseTog").onclick=()=>{ includeNoseWax=!includeNoseWax; $("#noseTog").classList.toggle("on",includeNoseWax); renderRitual(); };
   $("#dryTog").onclick=()=>{ includeDryBrush=!includeDryBrush; $("#dryTog").classList.toggle("on",includeDryBrush); renderRitual(); };
-  $("#showerTog").onclick=()=>{ includeShower=!includeShower; $("#showerTog").classList.toggle("on",includeShower); renderRitual(); };
   $("#searchIn").oninput=e=>{ query=e.target.value; renderShelf(); };
   $("#fab").onclick=openAdd;
   $("#closeAdd").onclick=closeAdd;
