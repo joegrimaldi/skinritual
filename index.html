@@ -374,7 +374,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v14";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v15";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -443,7 +443,19 @@ function usesInLast7(id, atTs=Date.now()){
   return DB.log.filter(e => (atTs - e.ts) < 7*DAY && (atTs - e.ts) >= 0 && e.products.includes(id)).length;
 }
 function inStock(pred){ return DB.products.filter(p => p.qty>0 && pred(p)); }
-function pick(pred, rank){ let c = inStock(pred); if(rank) c = c.slice().sort(rank); return c[0]; }
+// Pick ONE product, rotating to the least-recently-used so no single bottle
+// gets overused; `rank` (fav/light/etc.) only breaks ties among equal recency.
+function pick(pred, rank){
+  const c = inStock(pred);
+  if(!c.length) return undefined;
+  c.sort((a,b)=>{
+    const la=a.lastUsed||0, lb=b.lastUsed||0;
+    if(la!==lb) return la-lb;               // least-recently-used first
+    if(rank){ const d=rank(a,b); if(d) return d; }
+    return a.id-b.id;
+  });
+  return c[0];
+}
 function activeAvailable(p){
   if(daysSince(p.lastUsed) < p.cd) return false;       // cooldown not elapsed
   if(p.max && usesInLast7(p.id) >= p.max) return false; // weekly cap hit
@@ -473,7 +485,7 @@ function buildRoutine(routineMode, anchorId, opts={}){
     add(pick(p=>p.am && p.cat==="cleanser", preferFav));
     if(shave) shaveStep();
     add(pick(p=>p.am && p.cat==="toner", preferMedicube));
-    inStock(p=>p.am && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p));
+    add(pick(p=>p.am && p.hydra));   // one hydrating serum, rotated
     add(pick(p=>p.am && p.cat==="eye_cream"));
     add(pick(p=>p.am && p.cat==="moisturizer", preferLight));
     add(pick(p=>p.am && p.cat==="sunscreen", preferFav), null, ["always last · wait 2–3 min"]);
@@ -488,7 +500,7 @@ function buildRoutine(routineMode, anchorId, opts={}){
     add(pick(p=>p.pm && p.cat==="toner", preferMedicube));
     const soothe = pick(p=>p.cat==="sheet_mask");
     if(soothe) add(soothe, ["Soothe","Calming sheet mask to comfort freshly-shaved skin."], ["post-shave"]);
-    inStock(p=>p.pm && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p));
+    add(pick(p=>p.pm && p.hydra));   // one hydrating serum, rotated
     add(pick(p=>p.pm && p.cat==="eye_cream"));
     add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight));
     inStock(p=>p.active).forEach(p=>skips.push({p, why:"Freshly shaved — skipping actives tonight so your skin can recover. Save them for a non-shave night."}));
@@ -501,7 +513,7 @@ function buildRoutine(routineMode, anchorId, opts={}){
       const [av,ah] = howtoFor(anchor);
       add(anchor, [anchor.cat==="mask"?"Mask (anchor)":"Sheet mask (anchor)", ah], ["featured tonight"]);
       add(pick(p=>p.pm && p.cat==="toner", preferMedicube));
-      inStock(p=>p.pm && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p));
+      add(pick(p=>p.pm && p.hydra));   // one hydrating serum, rotated
       add(pick(p=>p.pm && p.cat==="eye_cream"));
       add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight));
     } else {
@@ -536,12 +548,26 @@ function buildRoutine(routineMode, anchorId, opts={}){
         });
       }
 
-      inStock(p=>p.pm && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p)); // 5 hydrating serums
+      add(pick(p=>p.pm && p.hydra)); // 5 one hydrating serum, rotated
       if(anchor && anchor.cat==="spot") add(anchor);                          // spot if anchored
       add(pick(p=>p.pm && p.cat==="eye_cream"));                              // 6 eye
       add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight)); // 7 night
     }
   }
+
+  // Redundancy guard: if a category is already covered tonight, set aside the
+  // in-stock duplicates so you don't overuse the same *kind* of product.
+  const usedByCat={};
+  steps.forEach(s=>{ if(!s.shave) (usedByCat[s.p.cat]=usedByCat[s.p.cat]||[]).push(s.p); });
+  inStock(p=>true).forEach(p=>{
+    if(used.has(p.id) || p.active) return;                 // actives get their own reasons
+    const chosen = usedByCat[p.cat];
+    if(chosen && chosen.length && !skips.some(s=>s.p.id===p.id)){
+      const lc=catInfo(p.cat).label.toLowerCase();
+      skips.push({p, why:`Extra ${lc} — using ${chosen[0].brand} ${chosen[0].name} tonight. Rotating your ${lc}s so none gets overused.`});
+    }
+  });
+
   steps.forEach((s,i)=>s.n=i+1);
   return {steps, skips};
 }
