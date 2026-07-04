@@ -457,7 +457,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v27";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v28";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -1583,6 +1583,7 @@ let tripDraft = new Set();
 let tripNights = 3;
 let tripBag = "carryon";        // planner staging
 let tripChecked = new Set();    // planner staging: items moved to checked bag
+let tripLeftHome = [];          // actives the trip is too short to justify
 
 // ---- TSA 3-1-1 logic ----
 const TSA = { maxMl:100, quartBagMl:950 };   // ≤100 mL/container; quart bag ≈ 950 mL usable
@@ -1603,7 +1604,31 @@ function setBag(b){ if(DB.trip){ DB.trip.bag=b; save(); } else tripBag=b; }
 function isChecked(id){ return DB.trip ? (DB.trip.checked||[]).includes(id) : tripChecked.has(id); }
 function setChecked(id,on){ if(DB.trip){ const c=DB.trip.checked||(DB.trip.checked=[]); const i=c.indexOf(id); if(on&&i<0)c.push(id); if(!on&&i>=0)c.splice(i,1); save(); } else { on?tripChecked.add(id):tripChecked.delete(id); } }
 
-function openTrip(){ if(!DB.trip){ tripDraft=new Set(); tripNights=3; tripBag="carryon"; tripChecked=new Set(); } $("#tripModal").classList.add("on"); renderTripSheet(); }
+// Auto-pack: the minimum kit that preserves the real ritual for `nights`, tuned
+// for reuse, TSA-fit, and an extended facial. Reuses the engine (no trip active
+// here, so inStock = full shelf).
+function proposeKit(nights){
+  const chosen=new Set(), leftHome=[];
+  // 1. core daily staples: what the engine actually picks AM + PM (one-per-kind, rotation-aware)
+  ["am","pm"].forEach(m=>buildRoutine(m,{scope:"daily"}).steps.forEach(s=>{ if(s.p.id>0) chosen.add(s.p.id); }));
+  // 2. actives earn their space only if usable ≥2× on the trip (nights > cooldown); else leave home
+  [...chosen].forEach(id=>{ const p=DB.products.find(x=>x.id===id);
+    if(p && p.active && !(nights>p.cd)){ chosen.delete(id); leftHome.push(p); } });
+  // 3. extended-facial supplement for trips ≥2 nights: a mask + a sheet mask (reusable indulgences)
+  if(nights>=2){
+    const mask=inStock(p=>p.cat==="mask")[0]; if(mask) chosen.add(mask.id);
+    const sheet=inStock(p=>p.cat==="sheet_mask")[0]; if(sheet) chosen.add(sheet.id);
+  }
+  // 4. TSA pass: swap any over-limit liquid for a compliant same-category alternative
+  [...chosen].forEach(id=>{ const p=DB.products.find(x=>x.id===id);
+    if(p && isLiquidP(p) && !carryOk(p)){
+      const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !chosen.has(x.id) && isLiquidP(x) && effMl(x)!=null && effMl(x)<=TSA.maxMl);
+      if(alt){ chosen.delete(id); chosen.add(alt.id); }
+    }});
+  return {kit:[...chosen], leftHome};
+}
+function applyProposal(){ const r=proposeKit(tripNights); tripDraft=new Set(r.kit); tripLeftHome=r.leftHome; }
+function openTrip(){ if(!DB.trip){ tripDraft=new Set(); tripNights=3; tripBag="carryon"; tripChecked=new Set(); applyProposal(); } $("#tripModal").classList.add("on"); renderTripSheet(); }
 function closeTrip(){ $("#tripModal").classList.remove("on"); }
 function afterKitChange(){ save(); renderTripSheet(); refreshTrip(); renderShelf(); if($("#view-ritual").classList.contains("on")) renderRitual(); }
 
@@ -1633,7 +1658,11 @@ function renderTripSheet(){
   } else if(kit.length && !carryon){
     html += `<div class="amsub">🧳 Checked bag — no liquid size limits. Sizes shown for packing only.</div>`;
   }
-  html += `<div class="amsub">${active?"Tap to add/remove — rituals update live.":"Pick what to pack — travel rituals build only from these."}</div>`;
+  if(!active){
+    html += `<div class="amsub">✨ Auto-packed <b>${kit.length}</b> item${kit.length===1?"":"s"} for ${tripNights} night${tripNights===1?"":"s"} — TSA-fit, reusable, facial-ready. <a href="#" id="repack">↻ re-pack</a></div>`;
+    if(tripLeftHome.length) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">🏠 Left home: ${esc(tripLeftHome.map(p=>p.name).join(", "))} — trip's too short to use ${tripLeftHome.length>1?"them":"it"} enough.</div>`;
+  }
+  html += `<div class="amsub">${active?"Tap to add/remove — rituals update live.":"Adjust anything below."}</div>`;
 
   const byCat={}; stock.forEach(p=>{ (byCat[p.cat]=byCat[p.cat]||[]).push(p); });
   Object.keys(byCat).sort((a,b)=>(STEP_OF[a]??9)-(STEP_OF[b]??9)).forEach(cat=>{
@@ -1657,7 +1686,8 @@ function renderTripSheet(){
     : `<button class="btn primary" id="startTripBtn" style="margin-top:18px">Start trip →</button>`;
   body.innerHTML=html;
 
-  body.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{ tripNights=Math.max(1,Math.min(60,tripNights+(+b.dataset.n))); $("#tripN").textContent=tripNights; });
+  body.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{ tripNights=Math.max(1,Math.min(60,tripNights+(+b.dataset.n))); applyProposal(); renderTripSheet(); });
+  if($("#repack")) $("#repack").onclick=e=>{ e.preventDefault(); applyProposal(); renderTripSheet(); };
   body.querySelectorAll("[data-bag]").forEach(b=>b.onclick=()=>{ setBag(b.dataset.bag); renderTripSheet(); });
   body.querySelectorAll("[data-kit]").forEach(b=>b.onclick=()=>{ toggleKit(+b.dataset.kit); afterKitChange(); });
   body.querySelectorAll("[data-size]").forEach(b=>b.onclick=()=>{
