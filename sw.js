@@ -1,5 +1,5 @@
 /* skinritual service worker — network-first so new deploys load on launch */
-const CACHE = "skinritual-v30";
+const CACHE = "skinritual-v31";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {

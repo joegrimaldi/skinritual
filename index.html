@@ -457,7 +457,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v30";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v31";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -1217,7 +1217,7 @@ function openEdit(id){
 function productToPref(p){
   return {name:p.name, brand:p.brand, cat:p.cat,
     when: p.am&&p.pm?"both":(p.am?"am":"pm"), freq:p.freq, active:!!p.active,
-    sizeStr: p.sizeMl!=null ? p.sizeMl+"ml" : ""};
+    sizeStr: p.sizeMl!=null ? p.sizeMl+"ml" : "", tsa:!!p.tsa};
 }
 function closeAdd(){ $("#addModal").classList.remove("on"); stopScan(); }
 function stopScan(){
@@ -1351,7 +1351,8 @@ function capManual(pref={}, editId=null){
       <option value="both">Morning & Evening</option><option value="am">Morning only</option><option value="pm">Evening only</option>
     </select></div>
     <div class="field"><label>Frequency</label><select class="f" id="mFreq">${freqs.map(f=>`<option>${f}</option>`).join("")}</select></div>
-    <div class="field"><label>Container size (for travel/TSA — optional)</label><input class="f" id="mSize" value="${esc(pref.sizeStr||"")}" placeholder="e.g. 50ml or 1.7oz"></div>
+    <div class="field"><label>Container size (optional)</label><input class="f" id="mSize" value="${esc(pref.sizeStr||"")}" placeholder="e.g. 50ml or 1.7oz"></div>
+    <label class="checkrow"><input type="checkbox" id="mTsa"> ✈️ TSA carry-on OK — it's solid, or a liquid ≤ 100 mL (3.4 oz)</label>
     <label class="checkrow"><input type="checkbox" id="mActive"> This is an active (retinol / acid / exfoliant — schedule it with cooldowns)</label>
     <button class="btn primary" id="mSave">${editId?"Save changes →":"Add to My Shelf →"}</button>
     ${editId?`<button class="btn ghost" id="mDelete" style="margin-top:8px">Remove from shelf</button>`:""}`;
@@ -1360,6 +1361,7 @@ function capManual(pref={}, editId=null){
   if(pref.when && $("#mWhen")) $("#mWhen").value=pref.when;
   if(pref.freq && $("#mFreq")) $("#mFreq").value=pref.freq;
   if(pref.active && $("#mActive")) $("#mActive").checked=true;
+  if(pref.tsa && $("#mTsa")) $("#mTsa").checked=true;
   $("#mSave").onclick=()=>saveProduct(editId);
   if(editId && $("#mDelete")) $("#mDelete").onclick=()=>{ closeAdd(); removeProd(editId); };
 }
@@ -1375,7 +1377,7 @@ function saveProduct(editId){
     cd:isActive?2:0, max:isActive?4:0,
     active:isActive?1:0,
     hydra:(cat==="serum"&&!isActive)?1:0,
-    sizeMl,
+    sizeMl, tsa:(($("#mTsa")&&$("#mTsa").checked) || (sizeMl!=null && sizeMl<=TSA.maxMl))?1:0,
   };
   if(editId){
     const p=DB.products.find(x=>x.id===editId);
@@ -1485,6 +1487,7 @@ function normalizeProfile(p){
     soothing:p.soothing?1:0,
     sizeMl:(Number.isFinite(p.sizeMl)&&p.sizeMl>=1&&p.sizeMl<=1000)?Math.round(p.sizeMl):null,
     form:["liquid","solid","aerosol"].includes(p.form)?p.form:null,
+    tsa:(p.form==="solid" || (Number.isFinite(p.sizeMl)&&p.sizeMl>0&&p.sizeMl<=100))?1:0,
     hydra:(cat==="serum"&&!active)?1:0,
   };
 }
@@ -1502,6 +1505,7 @@ function showAIResult(pr){
       <span class="pill" style="background:${ci.pill}">${esc(ci.label)}</span>
       ${pr.active?`<span class="tg">active</span>`:""}
       ${pr.soothing?`<span class="tg">🌿 soothing</span>`:""}
+      ${pr.tsa?`<span class="tg">✈️ carry-on</span>`:(pr.sizeMl!=null?`<span class="tg">⚠️ not carry-on</span>`:"")}
     </div>
     <div class="airow"><span class="ak">When</span><span class="av">${esc(whenTags)}</span></div>
     <div class="airow"><span class="ak">How often</span><span class="av">${esc(sched.join(" · "))}</span></div>
@@ -1518,7 +1522,7 @@ function addFromProfile(pr){
   const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
   DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
     step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra, soothing:pr.soothing,
-    sizeMl:pr.sizeMl, form:pr.form,
+    sizeMl:pr.sizeMl, form:pr.form, tsa:pr.tsa,
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
   if(DB.trip){ DB.trip.kit.push(id); DB.trip.packed.push(id); }
   save(); toast(DB.trip?`Added to your Dopp kit ✈️`:`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
@@ -1594,6 +1598,8 @@ function formOf(p){ return p.form || (["sheet_mask","spot"].includes(p.cat)?"sol
 function isLiquidP(p){ const f=formOf(p); return f==="liquid"||f==="aerosol"; }
 function effMl(p){ return p.decant!=null ? p.decant : (p.sizeMl!=null ? p.sizeMl : null); }
 function carryOk(p){ if(!isLiquidP(p)) return true; const m=effMl(p); return m!=null && m<=TSA.maxMl; }
+// TSA carry-on compliance: solids always OK; explicit checkbox wins; undefined → size math.
+function tsaOk(p){ if(!isLiquidP(p)) return true; if(p.tsa===1||p.tsa===true) return true; if(p.tsa===0||p.tsa===false) return false; return carryOk(p); }
 
 // ---- unified kit/bag/checked accessors (work on active trip OR draft) ----
 function inKit(id){ return DB.trip ? DB.trip.kit.includes(id) : tripDraft.has(id); }
@@ -1607,7 +1613,8 @@ function setChecked(id,on){ if(DB.trip){ const c=DB.trip.checked||(DB.trip.check
 // Auto-pack: the minimum kit that preserves the real ritual for `nights`, tuned
 // for reuse, TSA-fit, and an extended facial. Reuses the engine (no trip active
 // here, so inStock = full shelf).
-function proposeKit(nights){
+function proposeKit(nights, bag){
+  const carryon = (bag||curBag())==="carryon";
   const chosen=new Set(), leftHome=[];
   // 1. core daily staples: what the engine actually picks AM + PM (one-per-kind, rotation-aware)
   ["am","pm"].forEach(m=>buildRoutine(m,{scope:"daily"}).steps.forEach(s=>{ if(s.p.id>0) chosen.add(s.p.id); }));
@@ -1619,12 +1626,16 @@ function proposeKit(nights){
     const mask=inStock(p=>p.cat==="mask")[0]; if(mask) chosen.add(mask.id);
     const sheet=inStock(p=>p.cat==="sheet_mask")[0]; if(sheet) chosen.add(sheet.id);
   }
-  // 4. TSA pass: swap any over-limit liquid for a compliant same-category alternative
-  [...chosen].forEach(id=>{ const p=DB.products.find(x=>x.id===id);
-    if(p && isLiquidP(p) && !carryOk(p)){
-      const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !chosen.has(x.id) && isLiquidP(x) && effMl(x)!=null && effMl(x)<=TSA.maxMl);
-      if(alt){ chosen.delete(id); chosen.add(alt.id); }
-    }});
+  // 4. Carry-on TSA pass: any non-carry-on item → swap for a carry-on same-category
+  //    alternative; if none exists, drop it and note it as left home.
+  if(carryon){
+    [...chosen].forEach(id=>{ const p=DB.products.find(x=>x.id===id);
+      if(p && !tsaOk(p)){
+        const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !chosen.has(x.id) && tsaOk(x));
+        if(alt){ chosen.delete(id); chosen.add(alt.id); }
+        else { chosen.delete(id); leftHome.push(p); }
+      }});
+  }
   return {kit:[...chosen], leftHome};
 }
 function applyProposal(){ const r=proposeKit(tripNights); tripDraft=new Set(r.kit); tripLeftHome=r.leftHome; }
@@ -1643,7 +1654,7 @@ function renderTripSheet(){
   const carryon = curBag()==="carryon";
   const kitLiquids = kit.map(id=>DB.products.find(p=>p.id===id)).filter(p=>p&&isLiquidP(p)&&!isChecked(p.id));
   const load = kitLiquids.reduce((s,p)=>{const m=effMl(p); return s+(m!=null?m:0);},0);
-  const over = kitLiquids.filter(p=>!carryOk(p));
+  const over = kitLiquids.filter(p=>!tsaOk(p));
   const pct = Math.min(100, Math.round(load/TSA.quartBagMl*100));
 
   let html = active
@@ -1654,24 +1665,26 @@ function renderTripSheet(){
       <button data-bag="checked" class="${carryon?"":"on"}">🧳 Checked</button></div>`;
   if(kit.length && carryon){
     html += `<div class="qmeter"><div class="qbar"><div class="qfill" style="width:${pct}%"></div></div>
-      <div class="qlab">🧴 Liquids bag: ${Math.round(load)} / ~${TSA.quartBagMl} mL${over.length?` · ⚠️ ${over.length} over 100 mL`:""}</div></div>`;
+      <div class="qlab">🧴 Liquids bag: ${Math.round(load)} / ~${TSA.quartBagMl} mL${over.length?` · ⚠️ ${over.length} not carry-on`:""}</div></div>`;
   } else if(kit.length && !carryon){
     html += `<div class="amsub">🧳 Checked bag — no liquid size limits. Sizes shown for packing only.</div>`;
   }
   if(!active){
     html += `<div class="amsub">✨ Auto-packed <b>${kit.length}</b> item${kit.length===1?"":"s"} for ${tripNights} night${tripNights===1?"":"s"} — TSA-fit, reusable, facial-ready. <a href="#" id="repack">↻ re-pack</a></div>`;
-    if(tripLeftHome.length) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">🏠 Left home: ${esc(tripLeftHome.map(p=>p.name).join(", "))} — trip's too short to use ${tripLeftHome.length>1?"them":"it"} enough.</div>`;
+    if(tripLeftHome.length) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">🏠 Left home: ${esc(tripLeftHome.map(p=>p.name).join(", "))} — ${carryon?"not carry-on friendly, or the ":"the "}trip's too short to justify ${tripLeftHome.length>1?"them":"it"}.</div>`;
   }
   // Row renderer (shared by the packed list and the add-more section)
   const rowFor = p=>{
-    const k=inKit(p.id), liq=isLiquidP(p), chk=isChecked(p.id), m=effMl(p);
+    const k=inKit(p.id), liq=isLiquidP(p), chk=isChecked(p.id), m=effMl(p), ok=tsaOk(p);
     let chip;
     if(!liq) chip=`<span class="sizechip solid">solid</span>`;
     else if(chk) chip=`<span class="sizechip checked" data-uncheck="${p.id}">✈️ checked</span>`;
-    else if(m==null) chip=`<span class="sizechip warn" data-size="${p.id}">size?</span>`;
-    else chip=`<span class="sizechip ${m<=TSA.maxMl?"ok":"warn"}" data-size="${p.id}">${m} mL${p.decant!=null?" · decant":""}</span>`;
-    const fix = (k&&liq&&!chk&&carryon&&!carryOk(p))
-      ? `<div class="kitfix">⚠️ over 100 mL — <button data-fix="swap" data-id="${p.id}">swap smaller</button> · <button data-fix="decant" data-id="${p.id}">decant</button> · <button data-fix="checked" data-id="${p.id}">checked bag</button></div>` : "";
+    else if(m!=null) chip=`<span class="sizechip ${ok?"ok":"warn"}" data-size="${p.id}">${m} mL${p.decant!=null?" · decant":""}</span>`;
+    else if(ok) chip=`<span class="sizechip ok" data-size="${p.id}">✈️ carry-on</span>`;
+    else if(p.tsa===0||p.tsa===false) chip=`<span class="sizechip warn" data-size="${p.id}">⚠️ not carry-on</span>`;
+    else chip=`<span class="sizechip warn" data-size="${p.id}">size?</span>`;
+    const fix = (k&&liq&&!chk&&carryon&&!ok)
+      ? `<div class="kitfix">⚠️ not carry-on — <button data-fix="swap" data-id="${p.id}">swap smaller</button> · <button data-fix="decant" data-id="${p.id}">decant</button> · <button data-fix="checked" data-id="${p.id}">checked bag</button></div>` : "";
     return `<div class="kitrow ${k?"on":""}">
       <button class="kittoggle" data-kit="${p.id}"><span class="amadd">${k?"✓":"＋"}</span><span class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</span></button>
       ${chip}${fix}</div>`;
@@ -1696,7 +1709,7 @@ function renderTripSheet(){
 
   body.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{ tripNights=Math.max(1,Math.min(60,tripNights+(+b.dataset.n))); applyProposal(); renderTripSheet(); });
   if($("#repack")) $("#repack").onclick=e=>{ e.preventDefault(); applyProposal(); renderTripSheet(); };
-  body.querySelectorAll("[data-bag]").forEach(b=>b.onclick=()=>{ setBag(b.dataset.bag); renderTripSheet(); });
+  body.querySelectorAll("[data-bag]").forEach(b=>b.onclick=()=>{ setBag(b.dataset.bag); if(!active) applyProposal(); renderTripSheet(); });
   body.querySelectorAll("[data-kit]").forEach(b=>b.onclick=()=>{ toggleKit(+b.dataset.kit); afterKitChange(); });
   body.querySelectorAll("[data-size]").forEach(b=>b.onclick=()=>{
     const p=DB.products.find(x=>x.id===+b.dataset.size); if(!p) return;
@@ -1712,12 +1725,12 @@ function renderTripSheet(){
 function tripFix(kind, id){
   const p=DB.products.find(x=>x.id===id); if(!p) return;
   if(kind==="swap"){
-    const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !inKit(x.id) && isLiquidP(x) && effMl(x)!=null && effMl(x)<=TSA.maxMl);
-    if(!alt){ toast(`No smaller ${catInfo(p.cat).label.toLowerCase()} on your shelf`); return; }
+    const alt=DB.products.find(x=>x.qty>0 && x.cat===p.cat && x.id!==id && !inKit(x.id) && tsaOk(x));
+    if(!alt){ toast(`No carry-on ${catInfo(p.cat).label.toLowerCase()} on your shelf`); return; }
     toggleKit(id); if(!inKit(alt.id)) toggleKit(alt.id);
     toast(`Swapped in ${alt.name}`); afterKitChange();
   } else if(kind==="decant"){
-    p.decant=TSA.maxMl; save(); toast("Marked decanted (≤100 mL travel bottle)"); renderTripSheet(); refreshTrip();
+    p.decant=TSA.maxMl; p.tsa=1; save(); toast("Marked decanted (≤100 mL travel bottle)"); renderTripSheet(); refreshTrip();
   } else if(kind==="checked"){
     setChecked(id,true); toast("Moved to checked bag"); renderTripSheet(); refreshTrip();
   }
