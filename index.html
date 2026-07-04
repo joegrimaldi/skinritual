@@ -374,7 +374,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v13";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v14";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -454,19 +454,24 @@ const preferLight = (a,b)=>(b.light?1:0)-(a.light?1:0);
 const preferMedicube = (a,b)=>(a.brand==="Medicube"?-1:0)-(b.brand==="Medicube"?-1:0);
 
 /* Build an ordered routine. Returns {steps:[{p,verb,how,meta:[]}], skips:[{p,why}]}. */
-function buildRoutine(routineMode, anchorId){
+function buildRoutine(routineMode, anchorId, opts={}){
   const steps=[], skips=[], used=new Set();
+  const shave = !!opts.shave;
   const add=(p, override, meta)=>{
     if(!p || used.has(p.id)) return;
     used.add(p.id);
     const [v,h] = override || howtoFor(p);
     steps.push({p, verb:v, how:h, meta:meta||[]});
   };
-  const anchor = anchorId ? DB.products.find(p=>p.id===anchorId && p.qty>0) : null;
+  const shaveStep = () => steps.push({ shave:true,
+    verb:"🪒 Shave", how:"Electric/clipper shave — go with the grain, light pressure, then rinse away debris. Skip strong actives so freshly-shaved skin can recover.",
+    meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
+  const anchor = (!shave && anchorId) ? DB.products.find(p=>p.id===anchorId && p.qty>0) : null;
 
   if(routineMode==="am"){
     // AM — no actives, ever.
     add(pick(p=>p.am && p.cat==="cleanser", preferFav));
+    if(shave) shaveStep();
     add(pick(p=>p.am && p.cat==="toner", preferMedicube));
     inStock(p=>p.am && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p));
     add(pick(p=>p.am && p.cat==="eye_cream"));
@@ -475,6 +480,18 @@ function buildRoutine(routineMode, anchorId){
     inStock(p=>p.active).forEach(p=>skips.push({p, why:"No actives in the morning — actives are PM only."}));
     if(anchor && anchor.pm && !anchor.am)
       skips.push({p:anchor, why:"This is an evening product — switch to the Evening ritual to use it."});
+  } else if(shave){
+    // Post-shave evening: gentle cleanse, no actives, soothe & repair the barrier.
+    add(pick(p=>p.oil));
+    add(pick(p=>p.cat==="cleanser" && !p.oil, preferFav));
+    shaveStep();
+    add(pick(p=>p.pm && p.cat==="toner", preferMedicube));
+    const soothe = pick(p=>p.cat==="sheet_mask");
+    if(soothe) add(soothe, ["Soothe","Calming sheet mask to comfort freshly-shaved skin."], ["post-shave"]);
+    inStock(p=>p.pm && p.hydra).sort((a,b)=>a.id-b.id).forEach(p=>add(p));
+    add(pick(p=>p.pm && p.cat==="eye_cream"));
+    add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight));
+    inStock(p=>p.active).forEach(p=>skips.push({p, why:"Freshly shaved — skipping actives tonight so your skin can recover. Save them for a non-shave night."}));
   } else {
     const anchorIsMask = anchor && (anchor.cat==="mask" || anchor.cat==="sheet_mask");
     if(anchorIsMask){
@@ -532,8 +549,8 @@ function buildRoutine(routineMode, anchorId){
 /* Consecutive-day streak ending today; grace if today not yet logged. */
 function dayKey(ts){ const d=new Date(ts); return d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); }
 function currentStreak(){
-  if(!DB.log.length) return 0;
-  const days = new Set(DB.log.map(e=>dayKey(e.ts)));
+  const days = new Set(DB.log.filter(e=>e.products && e.products.length).map(e=>dayKey(e.ts)));
+  if(!days.size) return 0;
   let streak=0;
   const d = new Date();
   if(!days.has(dayKey(d.getTime()))) d.setDate(d.getDate()-1); // today un-logged → start from yesterday
@@ -673,22 +690,25 @@ function fillAnchor(){
   const sel=$("#anchorSel"), cur=sel.value;
   const opts=inStock(p=>true).sort((a,b)=>a.name.localeCompare(b.name))
     .map(p=>`<option value="${p.id}">${esc(p.brand)} · ${esc(p.name)}</option>`).join("");
-  sel.innerHTML=`<option value="">No anchor — build my standard ritual</option>`+opts;
-  if(cur && DB.products.some(p=>p.id===+cur && p.qty>0)) sel.value=cur;
+  sel.innerHTML=`<option value="">No anchor — build my standard ritual</option><option value="shave">🪒 Shaving tonight — post-shave care</option>`+opts;
+  if(cur==="shave" || (cur && DB.products.some(p=>p.id===+cur && p.qty>0))) sel.value=cur;
 }
 function renderRitual(){
-  const anchorId=+$("#anchorSel").value||null;
-  const {steps,skips}=buildRoutine(mode, anchorId);
+  const raw=$("#anchorSel").value;
+  const shave = raw==="shave";
+  const anchorId = shave ? null : (+raw||null);
+  const {steps,skips}=buildRoutine(mode, anchorId, {shave});
   const out=$("#ritualOut");
   if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Restock on the Shelf tab.</div>`; return; }
   let html = steps.map(s=>{
-    const ci=catInfo(s.p.cat);
-    const meta=[`<span>${esc(ci.label)}</span>`, ...s.meta.map(m=>`<span>${esc(m)}</span>`)].join("");
+    const metaItems = s.shave ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
+    const meta = metaItems.map(m=>`<span>${esc(m)}</span>`).join("");
+    const who = s.shave ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
     return `<div class="step">
       <div class="stepn">${s.n}</div>
       <div style="flex:1;min-width:0">
         <div class="verb">${esc(s.verb)}</div>
-        <div class="who"><b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}</div>
+        <div class="who">${who}</div>
         <div class="how">${esc(s.how)}</div>
         ${s.p.note?`<div class="stepnote">⚠️ ${esc(s.p.note)}</div>`:""}
         <div class="metarow">${meta}</div>
@@ -706,25 +726,26 @@ function renderRitual(){
     ).join("") + `</div>`;
   }
 
-  const ids=steps.map(s=>s.p.id);
-  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}</button>`;
+  const ids=steps.filter(s=>!s.shave).map(s=>s.p.id);
+  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${shave?" + shave":""}</button>`;
   out.innerHTML=html;
-  $("#logBtn").onclick=()=>logRoutine(ids);
+  $("#logBtn").onclick=()=>logRoutine(ids, shave);
 }
-function logRoutine(ids){
+function logRoutine(ids, shave){
   const now=Date.now();
-  DB.log.push({ts:now, mode, products:ids.slice()});
+  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
-  save(); buzz(15); refreshStreak(); showRecap(ids);
+  save(); buzz(15); refreshStreak(); showRecap(ids, shave);
 }
 
 /* ============================================================
    Recap
    ============================================================ */
-function showRecap(ids){
+function showRecap(ids, shave){
   const n=currentStreak();
-  const week=DB.log.filter(e=>(Date.now()-e.ts)<7*DAY).length;
-  const stepList=ids.map(id=>{ const p=meta(id); return `<div class="s"><b>·</b> ${esc(p.brand)} — ${esc(p.name)}</div>`; }).join("");
+  const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
+  const stepList=ids.map(id=>{ const p=meta(id); return `<div class="s"><b>·</b> ${esc(p.brand)} — ${esc(p.name)}</div>`; }).join("")
+    + (shave?`<div class="s"><b>·</b> 🪒 Shave</div>`:"");
   $("#recapCard").innerHTML=`
     <div class="fire">${n>0?"🔥":"✨"}</div>
     <div class="rtitle">Ritual complete</div>
@@ -746,7 +767,14 @@ function meta(id){ return DB.products.find(p=>p.id===id) || {brand:"",name:"Prod
    ============================================================ */
 function renderRhythm(){
   const n=currentStreak();
-  const week=DB.log.filter(e=>(Date.now()-e.ts)<7*DAY).length;
+  const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
+
+  // grooming: last shave
+  const shaves=DB.log.filter(e=>e.shave).sort((a,b)=>b.ts-a.ts);
+  const lastShaveTxt = shaves.length
+    ? (()=>{ const d=daysSince(shaves[0].ts); return d===0?"today":d===1?"yesterday":`${d} days ago`; })()
+    : "not yet logged";
+  const shaveWeek=shaves.filter(e=>(Date.now()-e.ts)<7*DAY).length;
 
   // active scheduling status
   const actives=inStock(p=>p.active);
@@ -780,8 +808,18 @@ function renderRhythm(){
     <div class="panel"><h3>This week</h3>
       <div style="font-size:14px">You've logged <b>${week}</b> ritual${week===1?"":"s"} in the last 7 days.</div>
     </div>
+    <div class="panel"><h3>Grooming</h3>
+      <div style="font-size:14px;margin-bottom:12px">🪒 Last shave: <b>${esc(lastShaveTxt)}</b>${shaveWeek?` · ${shaveWeek} this week`:""}</div>
+      <button class="btn ghost" id="logShaveBtn">🪒 Log a shave now</button>
+    </div>
     <div class="panel" id="calWrap"></div>`;
+  $("#logShaveBtn").onclick=logShaveNow;
   renderCalendar();
+}
+function logShaveNow(){
+  const now=Date.now();
+  DB.log.push({ts:now, mode:(new Date().getHours()<12?"am":"pm"), products:[], shave:true});
+  save(); buzz(15); toast("Shave logged 🪒"); renderRhythm();
 }
 
 /* Calendar of logged rituals — tap a day to see what was used. */
@@ -805,7 +843,9 @@ function renderCalendar(){
   for(let d=1;d<=daysInMonth;d++){
     const dk=calY+"-"+calM+"-"+d;
     const entries=byDay[dk]||[];
-    const mk=(entries.some(e=>e.mode==="am")?"☀️":"")+(entries.some(e=>e.mode==="pm")?"🌙":"");
+    const hasAM=entries.some(e=>e.mode==="am" && e.products && e.products.length);
+    const hasPM=entries.some(e=>e.mode==="pm" && e.products && e.products.length);
+    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"");
     const cls=["calday"];
     if(entries.length) cls.push("has");
     if(dk===todayKey) cls.push("today");
@@ -821,9 +861,12 @@ function renderCalendar(){
     detail=`<div class="caldetail"><div class="cd-date">${esc(dateLabel)}</div>`+
       (entries.length ? entries.map(e=>{
         const t=new Date(e.ts).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
-        const prods=e.products.map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
-        return `<div class="cd-entry"><div class="cd-mode">${e.mode==="am"?"☀️ Morning":"🌙 Evening"} · ${esc(t)}</div><ul>${prods}</ul></div>`;
-      }).join("") : `<div class="cd-none">No ritual logged this day.</div>`)+`</div>`;
+        if(e.shave && !(e.products && e.products.length))
+          return `<div class="cd-entry"><div class="cd-mode">🪒 Shave · ${esc(t)}</div></div>`;
+        const head=(e.shave?"🪒 ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
+        const prods=(e.products||[]).map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
+        return `<div class="cd-entry"><div class="cd-mode">${esc(head)}</div><ul>${prods}</ul></div>`;
+      }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)+`</div>`;
   }
 
   wrap.innerHTML=`
