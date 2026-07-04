@@ -421,7 +421,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v22";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v23";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -549,10 +549,9 @@ function buildRoutine(routineMode, opts={}){
     meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
   const noseWaxStep = () => steps.push({ noseWax:true, groom:true,
     verb:"👃 Nose wax", how:"Warm the wax, coat the applicator, insert and hold ~90s, then remove. Only every ~3 weeks.",
-    meta:["grooming · every 3 wks"], p:{id:-2, cat:"groom", brand:"", name:"Nose wax"} });
+    meta:["grooming · last"], p:{id:-2, cat:"groom", brand:"", name:"Nose wax"} });
   if(dryBrush) dryBrushStep();  // dry brush is always first
-  if(shave) shaveStep();
-  if(noseWax) noseWaxStep();
+  if(shave) shaveStep();        // nose wax is added at the very end
 
   // scope → which optional steps turn on
   const SC = ({
@@ -633,6 +632,8 @@ function buildRoutine(routineMode, opts={}){
       add(p, null, ["you picked this"]);
     }
   });
+
+  if(noseWax) noseWaxStep();   // nose wax is always the very last thing
 
   // Redundancy guard: if a category is already covered, set aside in-stock
   // duplicates so you don't overuse the same *kind* of product.
