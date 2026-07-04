@@ -134,9 +134,21 @@
   .segwrap button{flex:1;border:none;background:none;color:var(--muted);font-weight:700;font-size:14px;
     padding:10px;border-radius:9px;cursor:pointer;transition:.15s}
   .segwrap button.on{background:var(--card);color:var(--text);box-shadow:var(--shadow)}
+  #scopeSeg button{flex-direction:column;gap:1px;line-height:1.1;padding:8px 4px}
+  #scopeSeg .segt{font-size:13px}
+  #scopeSeg .segsub{font-size:10px;font-weight:600;opacity:.7}
+  .togrow{display:flex;gap:8px;margin-bottom:14px}
+  .tog{flex:1;border:1px solid var(--line);background:var(--card);color:var(--muted);font-family:var(--sans);
+    font-weight:600;font-size:13px;padding:11px 8px;border-radius:var(--r-btn);cursor:pointer;transition:.15s}
+  .tog.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .picklab{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px}
+  .picklab span{font-weight:400}
+  .ritualest{font-size:12px;font-weight:700;color:var(--accent);background:rgba(140,100,68,.09);
+    display:inline-block;padding:6px 12px;border-radius:var(--r-pill);margin-bottom:14px}
+  #pickChips .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .anchor{margin-bottom:14px}
   .anchor label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600}
-  select.f,select#anchorSel{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-btn);
+  select.f{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r-btn);
     background:var(--card);font-family:var(--sans);font-size:14px;color:var(--text);appearance:none}
 
   /* ---------- Routine steps ---------- */
@@ -322,11 +334,18 @@
       <button data-mode="am" class="on">☀️ Morning</button>
       <button data-mode="pm">🌙 Evening</button>
     </div>
-    <div class="anchor">
-      <label>Tonight I want to use… (optional)</label>
-      <select id="anchorSel"><option value="">No anchor — build my standard ritual</option></select>
+    <div class="segwrap" id="scopeSeg">
+      <button data-scope="quick"><span class="segt">Quick</span><span class="segsub">&lt;9 min</span></button>
+      <button data-scope="daily" class="on"><span class="segt">Daily</span><span class="segsub">~15 min</span></button>
+      <button data-scope="full"><span class="segt">Full facial</span><span class="segsub">33 min+</span></button>
     </div>
-    <button class="btn primary" id="buildBtn">Get My Ritual →</button>
+    <div class="togrow">
+      <button class="tog" id="shaveTog">🪒 Include shave</button>
+      <button class="tog" id="locTog" data-loc="sink">🚰 At the sink</button>
+    </div>
+    <div class="picklab">Include specific products <span>— tap to add (optional)</span></div>
+    <div class="chips" id="pickChips"></div>
+    <button class="btn primary" id="buildBtn" style="margin-top:14px">Get My Ritual →</button>
     <div id="ritualOut" style="margin-top:16px"></div>
   </section>
 
@@ -374,7 +393,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v16";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v17";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -421,6 +440,10 @@ const howtoFor = p => (p.verb && p.how) ? [p.verb, p.how] : (CAT_HOWTO[p.cat] ||
    ============================================================ */
 let DB = {ver:2, products:[], log:[]};
 let mode = "am";     // ritual mode
+let scope = "daily"; // 'quick' | 'daily' | 'full'
+let includeShave = false;
+let ritualLoc = "sink"; // 'sink' | 'shower'
+let picks = new Set(); // product ids the user hand-picked to include
 let filter = "All";  // shelf category filter
 let query = "";
 
@@ -465,10 +488,15 @@ const preferFav   = (a,b)=>(b.fav?1:0)-(a.fav?1:0);
 const preferLight = (a,b)=>(b.light?1:0)-(a.light?1:0);
 const preferMedicube = (a,b)=>(a.brand==="Medicube"?-1:0)-(b.brand==="Medicube"?-1:0);
 
-/* Build an ordered routine. Returns {steps:[{p,verb,how,meta:[]}], skips:[{p,why}]}. */
-function buildRoutine(routineMode, anchorId, opts={}){
-  const steps=[], skips=[], used=new Set();
+/* Build an ordered routine driven by scope, shave, location, and hand-picked
+   products. Returns {steps:[{p,verb,how,meta:[]}], skips:[{p,why}]}. */
+function buildRoutine(routineMode, opts={}){
+  const scope = opts.scope || "daily";                 // 'quick' | 'daily' | 'full'
   const shave = !!opts.shave;
+  const loc   = opts.location === "shower" ? "shower" : "sink";
+  const picks = new Set((opts.picks||[]).map(Number));
+  const steps=[], skips=[], used=new Set();
+
   const add=(p, override, meta)=>{
     if(!p || used.has(p.id)) return;
     used.add(p.id);
@@ -478,89 +506,95 @@ function buildRoutine(routineMode, anchorId, opts={}){
   const shaveStep = () => steps.push({ shave:true,
     verb:"🪒 Shave", how:"Electric/clipper shave — go with the grain, light pressure, then rinse away debris. Skip strong actives so freshly-shaved skin can recover.",
     meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
-  const anchor = (!shave && anchorId) ? DB.products.find(p=>p.id===anchorId && p.qty>0) : null;
 
-  if(routineMode==="am"){
-    // AM — no actives, ever.
-    add(pick(p=>p.am && p.cat==="cleanser", preferFav));
+  // scope → which optional steps turn on
+  const SC = ({
+    quick:{toner:false, eye:false, active:false, mask:false, sheet:false, dbl:false},
+    daily:{toner:true,  eye:true,  active:true,  mask:false, sheet:false, dbl:true},
+    full: {toner:true,  eye:true,  active:true,  mask:true,  sheet:true,  dbl:true},
+  })[scope] || {};
+
+  const pickedCat = c => [...picks].some(id=>{const p=DB.products.find(x=>x.id===id); return p && p.cat===c && p.qty>0;});
+  const want = (c, on) => on || pickedCat(c);                       // a picked product forces its category on
+  const pickInc = (pred, rank) => pick(p=>pred(p) && picks.has(p.id), rank) || pick(pred, rank); // prefer picked
+
+  const isPM = routineMode==="pm";
+  const enableActive = SC.active && isPM && !shave;                 // actives: PM only, never on shave nights
+
+  if(!isPM){
+    // ---------- MORNING ----------
+    add(pickInc(p=>p.am && p.cat==="cleanser", preferFav));
     if(shave) shaveStep();
-    add(pick(p=>p.am && p.cat==="toner", preferMedicube));
-    add(pick(p=>p.am && p.hydra));   // one hydrating serum, rotated
-    add(pick(p=>p.am && p.cat==="eye_cream"));
-    add(pick(p=>p.am && p.cat==="moisturizer", preferLight));
-    add(pick(p=>p.am && p.cat==="sunscreen", preferFav), null, ["always last · wait 2–3 min"]);
+    if(want("toner", SC.toner)) add(pickInc(p=>p.am && p.cat==="toner", preferMedicube));
+    add(pickInc(p=>p.am && p.hydra));
+    if(want("eye_cream", SC.eye)) add(pickInc(p=>p.am && p.cat==="eye_cream"));
+    add(pickInc(p=>p.am && p.cat==="moisturizer", preferLight));
+    add(pickInc(p=>p.am && p.cat==="sunscreen", preferFav), null, ["always last · wait 2–3 min"]);
     inStock(p=>p.active).forEach(p=>skips.push({p, why:"No actives in the morning — actives are PM only."}));
-    if(anchor && anchor.pm && !anchor.am)
-      skips.push({p:anchor, why:"This is an evening product — switch to the Evening ritual to use it."});
-  } else if(shave){
-    // Post-shave evening: gentle cleanse, no actives, soothe & repair the barrier.
-    add(pick(p=>p.oil));
-    add(pick(p=>p.cat==="cleanser" && !p.oil, preferFav));
-    shaveStep();
-    add(pick(p=>p.pm && p.cat==="toner", preferMedicube));
-    const soothe = pick(p=>p.cat==="sheet_mask");
-    if(soothe) add(soothe, ["Soothe","Calming sheet mask to comfort freshly-shaved skin."], ["post-shave"]);
-    add(pick(p=>p.pm && p.hydra));   // one hydrating serum, rotated
-    add(pick(p=>p.pm && p.cat==="eye_cream"));
-    add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight));
-    inStock(p=>p.active).forEach(p=>skips.push({p, why:"Freshly shaved — skipping actives tonight so your skin can recover. Save them for a non-shave night."}));
   } else {
-    const anchorIsMask = anchor && (anchor.cat==="mask" || anchor.cat==="sheet_mask");
-    if(anchorIsMask){
-      // Clog-night flow: double cleanse → featured mask → tone → hydrate → eye → night.
-      add(pick(p=>p.oil), ["Oil cleanse","Prep skin so the mask can work — massage on dry skin, rinse."]);
-      add(pick(p=>p.cat==="cleanser" && !p.oil, preferFav));
-      const [av,ah] = howtoFor(anchor);
-      add(anchor, [anchor.cat==="mask"?"Mask (anchor)":"Sheet mask (anchor)", ah], ["featured tonight"]);
-      add(pick(p=>p.pm && p.cat==="toner", preferMedicube));
-      add(pick(p=>p.pm && p.hydra));   // one hydrating serum, rotated
-      add(pick(p=>p.pm && p.cat==="eye_cream"));
-      add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight));
-    } else {
-      add(pick(p=>p.oil));                                    // 1 oil cleanse
-      add(pick(p=>p.cat==="cleanser" && !p.oil, preferFav));  // 2 second cleanse
-      add(pick(p=>p.pm && p.cat==="toner", preferMedicube));  // 3 toner
+    // ---------- EVENING ----------
+    if(SC.dbl || pickedCat("cleanser"))
+      add(pickInc(p=>p.oil), loc==="shower"?["Oil cleanse","Massage onto dry skin to melt the day off, then rinse under the warm shower."]:null);
+    add(pickInc(p=>p.cat==="cleanser" && !p.oil, preferFav));
+    if(shave) shaveStep();
 
-      // 4 active step — anchor forces the pick, else most-overdue available
-      let active = null;
-      if(anchor && anchor.active){ active = anchor; }
-      else {
-        active = inStock(p=>p.active && activeAvailable(p))
-          .sort((a,b)=>daysSince(b.lastUsed)-daysSince(a.lastUsed))[0] || null;
-      }
+    // mask step (full scope, or a picked mask/sheet). Shower favors rinse-off; sink favors leave-on sheets.
+    if(!shave && (want("mask", SC.mask) || want("sheet_mask", SC.sheet))){
+      const m = pick(p=>p.cat==="mask" && picks.has(p.id))
+             || pick(p=>p.cat==="sheet_mask" && picks.has(p.id))
+             || (loc==="shower" ? pick(p=>p.cat==="mask") : pick(p=>p.cat==="sheet_mask"))
+             || pick(p=>p.cat==="mask") || pick(p=>p.cat==="sheet_mask");
+      if(m){ const [ ,mh]=howtoFor(m);
+        add(m, [m.cat==="mask"?"Mask":"Sheet mask", mh], [loc==="shower"?"rinse in the shower":"leave-on"]); }
+    }
+
+    if(want("toner", SC.toner)) add(pickInc(p=>p.pm && p.cat==="toner", preferMedicube));
+
+    if(enableActive){
+      const active = pick(p=>p.active && picks.has(p.id))
+        || inStock(p=>p.active && activeAvailable(p)).sort((a,b)=>daysSince(b.lastUsed)-daysSince(a.lastUsed))[0]
+        || null;
       if(active){
         const m=[]; if(active.max) m.push(`max ${active.max}×/week`);
         m.push(active.cat==="retinol" ? "retinol night" : "exfoliation night");
         add(active, null, m);
         inStock(p=>p.active && p.id!==active.id).forEach(p=>{
-          const clash = (active.cat==="retinol" && p.cat==="exfoliant") || (active.cat==="exfoliant" && p.cat==="retinol");
-          skips.push({p, why: clash
-            ? "Don't layer with tonight's active — alternate on separate nights."
-            : "One active per night is plenty."});
+          const clash = (active.cat==="retinol"&&p.cat==="exfoliant")||(active.cat==="exfoliant"&&p.cat==="retinol");
+          skips.push({p, why: clash?"Don't layer with tonight's active — alternate on separate nights.":"One active per night is plenty."});
         });
       } else {
         inStock(p=>p.active).forEach(p=>{
-          const dLeft = Math.max(0, p.cd - daysSince(p.lastUsed));
-          const capped = p.max && usesInLast7(p.id) >= p.max;
-          skips.push({p, why: capped
-            ? `Weekly limit reached (${p.max?`max ${p.max}×/week`:p.freq}).`
-            : `On cooldown — available in ${dLeft} day${dLeft===1?"":"s"}.`});
+          const dLeft=Math.max(0,p.cd-daysSince(p.lastUsed));
+          const capped=p.max && usesInLast7(p.id)>=p.max;
+          skips.push({p, why: capped?`Weekly limit reached (${p.max?`max ${p.max}×/week`:p.freq}).`:`On cooldown — available in ${dLeft} day${dLeft===1?"":"s"}.`});
         });
       }
-
-      add(pick(p=>p.pm && p.hydra)); // 5 one hydrating serum, rotated
-      if(anchor && anchor.cat==="spot") add(anchor);                          // spot if anchored
-      add(pick(p=>p.pm && p.cat==="eye_cream"));                              // 6 eye
-      add(pick(p=>p.cat==="night_cream") || pick(p=>p.pm && p.cat==="moisturizer", preferLight)); // 7 night
+    } else if(shave){
+      inStock(p=>p.active).forEach(p=>skips.push({p, why:"Freshly shaved — skipping actives tonight so your skin can recover. Save them for a non-shave night."}));
+    } else {
+      inStock(p=>p.active).forEach(p=>skips.push({p, why:"Quick refresh — skipping actives. Switch to Daily or Full to schedule one."}));
     }
+
+    add(pickInc(p=>p.pm && p.hydra));
+    if(want("eye_cream", SC.eye)) add(pickInc(p=>p.pm && p.cat==="eye_cream"));
+    add(pickInc(p=>p.cat==="night_cream") || pickInc(p=>p.pm && p.cat==="moisturizer", preferLight));
   }
 
-  // Redundancy guard: if a category is already covered tonight, set aside the
-  // in-stock duplicates so you don't overuse the same *kind* of product.
+  // Force-include any picked product not yet placed (e.g. a spot treatment).
+  [...picks].forEach(id=>{
+    const p=DB.products.find(x=>x.id===id);
+    if(p && p.qty>0 && !used.has(p.id)){
+      if(!isPM && p.active) return;                     // never actives in the morning
+      add(p, null, ["you picked this"]);
+    }
+  });
+
+  // Redundancy guard: if a category is already covered, set aside in-stock
+  // duplicates so you don't overuse the same *kind* of product.
   const usedByCat={};
   steps.forEach(s=>{ if(!s.shave) (usedByCat[s.p.cat]=usedByCat[s.p.cat]||[]).push(s.p); });
   inStock(p=>true).forEach(p=>{
-    if(used.has(p.id) || p.active) return;                 // actives get their own reasons
+    if(used.has(p.id) || p.active) return;
     const chosen = usedByCat[p.cat];
     if(chosen && chosen.length && !skips.some(s=>s.p.id===p.id)){
       const lc=catInfo(p.cat).label.toLowerCase();
@@ -570,6 +604,18 @@ function buildRoutine(routineMode, anchorId, opts={}){
 
   steps.forEach((s,i)=>s.n=i+1);
   return {steps, skips};
+}
+// Rough time estimate for the built routine.
+function estimateMinutes(steps){
+  let m=0;
+  steps.forEach(s=>{
+    if(s.shave) m+=3;
+    else if(s.p.cat==="mask") m+=12;
+    else if(s.p.cat==="sheet_mask") m+=18;
+    else if(s.p.cat==="cleanser") m+=1.5;
+    else m+=1;
+  });
+  return Math.max(1, Math.round(m));
 }
 
 /* Consecutive-day streak ending today; grace if today not yet logged. */
@@ -697,35 +743,44 @@ function renderShelf(){
 }
 function clearShelf(){
   if(confirm("Clear your entire shelf? This removes all products (your streak and history stay).")){
-    DB.products=[]; save(); renderChips(); renderShelf(); fillAnchor(); toast("Shelf cleared");
+    DB.products=[]; save(); renderChips(); renderShelf(); renderPickChips(); toast("Shelf cleared");
   }
 }
 function chgQty(id,d){ const p=DB.products.find(x=>x.id===id); if(!p) return; p.qty=Math.max(0,p.qty+d); save(); renderShelf(); }
 function removeProd(id){
   const p=DB.products.find(x=>x.id===id); if(!p) return;
   if(confirm(`Remove ${p.name} from your shelf?`)){
-    DB.products=DB.products.filter(x=>x.id!==id); save(); renderShelf(); toast("Removed"); fillAnchor();
+    DB.products=DB.products.filter(x=>x.id!==id); save(); renderShelf(); toast("Removed"); renderPickChips();
   }
 }
 
 /* ============================================================
    Ritual
    ============================================================ */
-function fillAnchor(){
-  const sel=$("#anchorSel"), cur=sel.value;
-  const opts=inStock(p=>true).sort((a,b)=>a.name.localeCompare(b.name))
-    .map(p=>`<option value="${p.id}">${esc(p.brand)} · ${esc(p.name)}</option>`).join("");
-  sel.innerHTML=`<option value="">No anchor — build my standard ritual</option><option value="shave">🪒 Shaving tonight — post-shave care</option>`+opts;
-  if(cur==="shave" || (cur && DB.products.some(p=>p.id===+cur && p.qty>0))) sel.value=cur;
+function renderPickChips(){
+  const wrap=$("#pickChips"); if(!wrap) return;
+  const list=inStock(p=>true).sort((a,b)=>a.name.localeCompare(b.name));
+  // drop picks that are no longer in stock
+  [...picks].forEach(id=>{ if(!list.some(p=>p.id===id)) picks.delete(id); });
+  if(!list.length){ wrap.innerHTML=`<span class="picklab" style="margin:0">Add products on the Shelf tab first.</span>`; return; }
+  wrap.innerHTML=list.map(p=>{
+    const ci=catInfo(p.cat);
+    return `<button class="chip ${picks.has(p.id)?"on":""}" data-pick="${p.id}">${ci.emoji} ${esc(p.name)}</button>`;
+  }).join("");
+  wrap.querySelectorAll("[data-pick]").forEach(b=>b.onclick=()=>{
+    const id=+b.dataset.pick;
+    picks.has(id)?picks.delete(id):picks.add(id);
+    b.classList.toggle("on");
+    if($("#ritualOut").innerHTML.trim()) renderRitual();   // live-update if a ritual is already shown
+  });
 }
 function renderRitual(){
-  const raw=$("#anchorSel").value;
-  const shave = raw==="shave";
-  const anchorId = shave ? null : (+raw||null);
-  const {steps,skips}=buildRoutine(mode, anchorId, {shave});
+  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, location:ritualLoc, picks:[...picks]});
   const out=$("#ritualOut");
-  if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Restock on the Shelf tab.</div>`; return; }
-  let html = steps.map(s=>{
+  if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Add products on the Shelf tab.</div>`; return; }
+  const mins=estimateMinutes(steps);
+  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""} · ${ritualLoc==="shower"?"🚿 shower":"🚰 sink"}</div>`;
+  html += steps.map(s=>{
     const metaItems = s.shave ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
     const meta = metaItems.map(m=>`<span>${esc(m)}</span>`).join("");
     const who = s.shave ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
@@ -752,9 +807,9 @@ function renderRitual(){
   }
 
   const ids=steps.filter(s=>!s.shave).map(s=>s.p.id);
-  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${shave?" + shave":""}</button>`;
+  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${includeShave?" + shave":""}</button>`;
   out.innerHTML=html;
-  $("#logBtn").onclick=()=>logRoutine(ids, shave);
+  $("#logBtn").onclick=()=>logRoutine(ids, includeShave);
 }
 function logRoutine(ids, shave){
   const now=Date.now();
@@ -1093,7 +1148,7 @@ function saveProduct(editId){
     DB.products.push({id, ...fields, qty:1, lastUsed:null});
     toast(`Added ${name}`);
   }
-  save(); closeAdd(); renderChips(); renderShelf(); fillAnchor();
+  save(); closeAdd(); renderChips(); renderShelf(); renderPickChips();
 }
 function capAI(){
   const savedKey=localStorage.getItem("skinritual-aikey")||"";
@@ -1218,7 +1273,7 @@ function addFromProfile(pr){
   DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
     step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra,
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
-  save(); toast(`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf(); fillAnchor();
+  save(); toast(`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf(); renderPickChips();
 }
 async function runAI(file){
   const key=localStorage.getItem("skinritual-aikey")||"";
@@ -1280,7 +1335,7 @@ function switchView(v){
   $$("nav.tabs button").forEach(b=>b.classList.toggle("on", b.dataset.view===v));
   $("#fab").style.display = v==="shelf" ? "block" : "none";
   if(v==="shelf") renderShelf();
-  if(v==="ritual"){ fillAnchor(); renderRitual(); }
+  if(v==="ritual"){ renderPickChips(); renderRitual(); }
   if(v==="rhythm") renderRhythm();
   window.scrollTo(0,0);
 }
@@ -1293,13 +1348,26 @@ function init(){
   renderChips(); renderShelf();
 
   $$("nav.tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+  const liveRitual=()=>{ if($("#ritualOut").innerHTML.trim()) renderRitual(); };
   $$("#ritualSeg button").forEach(b=>b.onclick=()=>{
     mode=b.dataset.mode;
     $$("#ritualSeg button").forEach(x=>x.classList.toggle("on",x===b));
-    renderRitual();
+    liveRitual();
   });
+  $$("#scopeSeg button").forEach(b=>b.onclick=()=>{
+    scope=b.dataset.scope;
+    $$("#scopeSeg button").forEach(x=>x.classList.toggle("on",x===b));
+    liveRitual();
+  });
+  $("#shaveTog").onclick=()=>{ includeShave=!includeShave; $("#shaveTog").classList.toggle("on",includeShave); liveRitual(); };
+  $("#locTog").onclick=()=>{
+    ritualLoc = ritualLoc==="sink" ? "shower" : "sink";
+    const t=$("#locTog"); t.dataset.loc=ritualLoc;
+    t.textContent = ritualLoc==="shower" ? "🚿 In the shower" : "🚰 At the sink";
+    t.classList.toggle("on", ritualLoc==="shower");
+    liveRitual();
+  };
   $("#buildBtn").onclick=renderRitual;
-  $("#anchorSel").onchange=renderRitual;
   $("#searchIn").oninput=e=>{ query=e.target.value; renderShelf(); };
   $("#fab").onclick=openAdd;
   $("#closeAdd").onclick=closeAdd;
