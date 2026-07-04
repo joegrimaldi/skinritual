@@ -374,7 +374,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v15";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v16";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -656,13 +656,12 @@ function renderShelf(){
   });
   if(!list.length){ grid.innerHTML=`<div class="empty" style="grid-column:1/-1">No products match. Try clearing the search or filter.</div>`; return; }
   grid.innerHTML = list.map(p=>{
-    const ci=catInfo(p.cat), out=p.qty<=0, low=p.qty===1;
+    const ci=catInfo(p.cat), out=p.qty<=0;
     const tags=[];
     if(p.am) tags.push(`<span class="tg">☀️ AM</span>`);
     if(p.pm) tags.push(`<span class="tg">🌙 PM</span>`);
     if(p.freq && p.freq!=="Daily") tags.push(`<span class="tg">${esc(p.freq)}</span>`);
     return `<div class="card" data-id="${p.id}">
-      ${low&&!out?`<span class="lowbadge">Low</span>`:""}
       <div class="tile" style="background:${ci.pill}">${ci.emoji}</div>
       <div class="brand">${esc(p.brand)}</div>
       <div class="pname">${esc(p.name)}</div>
