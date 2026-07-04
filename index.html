@@ -421,7 +421,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v21";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v22";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -475,8 +475,8 @@ let includeDryBrush = false;
 let includeShower = false; // sink is always assumed; toggle adds shower venue badges
 let picks = new Set(); // product ids the user hand-picked to include
 let openCats = new Set(); // expanded categories in the "Add to tonight" menu
-// Recommended cadence (days) + minutes for grooming activities.
-const CADENCE = { shave:3, noseWax:21, dryBrush:3 };
+// Recommended cadence (days) + minutes for grooming activities. dryBrush=1 → up to daily.
+const CADENCE = { shave:3, noseWax:21, dryBrush:1 };
 const GROOM_MIN = { shave:6, noseWax:9, dryBrush:3 };
 const GROOM_LABEL = { shave:"🪒 Shave", noseWax:"👃 Nose wax", dryBrush:"🖌️ Dry brush" };
 let filter = "All";  // shelf category filter
@@ -539,19 +539,20 @@ function buildRoutine(routineMode, opts={}){
     const [v,h] = override || howtoFor(p);
     steps.push({p, verb:v, how:h, meta:meta||[]});
   };
-  // Dry grooming happens FIRST, before cleansing (never in the shower).
+  // Dry grooming happens FIRST, before cleansing (never in the shower):
+  // dry brush → shave → nose wax.
+  const dryBrushStep = () => steps.push({ dryBrush:true, groom:true,
+    verb:"🖌️ Dry brush", how:"The very first step, on completely dry skin — brush gently upward and outward for ~2 min to stimulate and lightly exfoliate before you shave or cleanse.",
+    meta:["grooming · first"], p:{id:-3, cat:"groom", brand:"", name:"Dry brush"} });
   const shaveStep = () => steps.push({ shave:true, groom:true,
     verb:"🪒 Shave", how:"Electric/clipper shave on dry skin, before you cleanse — go with the grain, light pressure. Skip strong actives so freshly-shaved skin can recover.",
-    meta:["grooming · first"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
+    meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
   const noseWaxStep = () => steps.push({ noseWax:true, groom:true,
     verb:"👃 Nose wax", how:"Warm the wax, coat the applicator, insert and hold ~90s, then remove. Only every ~3 weeks.",
     meta:["grooming · every 3 wks"], p:{id:-2, cat:"groom", brand:"", name:"Nose wax"} });
-  const dryBrushStep = () => steps.push({ dryBrush:true, groom:true,
-    verb:"🖌️ Dry brush", how:"On completely dry skin (before cleansing), brush gently upward and outward for ~2 min to stimulate and lightly exfoliate.",
-    meta:["grooming · dry skin"], p:{id:-3, cat:"groom", brand:"", name:"Dry brush"} });
-  if(shave) shaveStep();       // shave first
+  if(dryBrush) dryBrushStep();  // dry brush is always first
+  if(shave) shaveStep();
   if(noseWax) noseWaxStep();
-  if(dryBrush) dryBrushStep();
 
   // scope → which optional steps turn on
   const SC = ({
@@ -943,7 +944,7 @@ function renderRhythm(){
   const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
 
   // grooming rows with cadence status
-  const cadTxt = k => CADENCE[k]>=21 ? "every ~3 weeks" : `every ~${CADENCE[k]} days`;
+  const cadTxt = k => CADENCE[k]>=21 ? "every ~3 weeks" : CADENCE[k]<=1 ? "up to daily" : `every ~${CADENCE[k]} days`;
   const groomRow = (k, label) => {
     const ago=groomDaysAgo(k);
     const last = ago===Infinity?"not logged yet":ago===0?"today":ago===1?"yesterday":`${ago}d ago`;
