@@ -286,6 +286,18 @@
   .aihow{padding:10px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}
   .aihow .ak{display:block;color:var(--muted);font-weight:600;margin-bottom:3px}
   .ainote{margin-top:10px;background:rgba(185,138,62,.12);color:#8a6516;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.4}
+
+  /* The Edit — shelf audit */
+  .editrow{display:flex;align-items:center;gap:8px;width:100%;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:12px 14px;margin:-4px 0 14px;cursor:pointer;font-family:var(--sans);
+    font-size:13.5px;color:var(--text);text-align:left}
+  .editrow .ename{font-family:var(--serif);font-size:16.5px}
+  .editrow .edot{width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
+  .editrow .ecount{margin-left:auto;color:var(--muted);font-weight:600}
+  .verdict{font-family:var(--serif);font-size:22px;color:var(--text);margin:2px 0 14px;line-height:1.25}
+  .gapcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+  .tierchip{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.5px;padding:2px 7px;
+    border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);background:none;flex:none}
   .stepnote{font-size:12px;color:var(--warn);margin-top:6px;line-height:1.4;font-weight:600}
 
   /* ---------- FAB ---------- */
@@ -376,6 +388,7 @@
   <section class="view" id="view-shelf">
     <h2 class="head">Your Shelf</h2>
     <div class="sub" id="shelfCount">—</div>
+    <button class="editrow" id="editRow" style="display:none"></button>
     <div class="controls">
       <div class="search"><input id="searchIn" placeholder="Search name or brand…" aria-label="Search" /></div>
     </div>
@@ -442,6 +455,15 @@
   </div>
 </div>
 
+<!-- The Edit — shelf audit sheet -->
+<div class="modal" id="editModal">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sh-head"><h3>The Edit</h3><button class="xbtn" id="closeEditSheet" aria-label="Close">✕</button></div>
+    <div id="editBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <div class="recap" id="recap"><div class="recapcard" id="recapCard"></div></div>
 
@@ -455,7 +477,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v35";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v36";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -816,6 +838,134 @@ function weeklyActivesPlan(){
 }
 
 /* ============================================================
+   The Edit — shelf audit. Layer 1: deterministic, local, free.
+   Gaps come from simulating the engine, never a parallel rulebook.
+   ============================================================ */
+function shelfHash(){ return DB.products.map(p=>p.id+":"+p.qty).sort().join("|"); }
+function auditShelf(){
+  const gaps=[], over=[];
+  const trip=DB.trip; DB.trip=null;   // audit the cabinet, never the trip kit
+  try{
+    const stocked=pred=>DB.products.filter(p=>p.qty>0&&pred(p));
+    const has=pred=>stocked(pred).length>0;
+    const am=buildRoutine("am",{scope:"daily"});
+    const pm=buildRoutine("pm",{scope:"full"});
+    const inSteps=(r,pred)=>r.steps.some(s=>!s.groom&&pred(s.p));
+    const gap=(key,cat,cls,title,why)=>{ if(!gaps.some(g=>g.key===key)) gaps.push({key,cat,class:cls,title,why}); };
+
+    // 1 · Routine gaps — a wanted slot neither build could fill (skipped-tonight ≠ missing)
+    if(!inSteps(am,p=>p.cat==="cleanser"&&!p.oil) && !inSteps(pm,p=>p.cat==="cleanser"&&!p.oil))
+      gap("cleanser","cleanser",1,"Nothing to cleanse with","Every ritual starts at the sink — no water cleanser is in stock, morning or night.");
+    if(!inSteps(pm,p=>p.oil))
+      gap("oil","cleanser",1,"Evenings run on a single cleanse","No oil cleanser in stock, so the PM double-cleanse collapses to one wash.");
+    if(!inSteps(am,p=>p.cat==="sunscreen"))
+      gap("spf","sunscreen",1,"Mornings end unprotected","No in-stock SPF — the AM ritual can't finish with sunscreen.");
+    if(!has(p=>p.hydra))
+      gap("serum","serum",1,"No hydrating serum","The treat step has nothing to fill it between toner and moisturizer.");
+    if(!inSteps(am,p=>p.cat==="eye_cream") && !inSteps(pm,p=>p.cat==="eye_cream"))
+      gap("eye","eye_cream",1,"Nothing for the eye area","Full builds want an eye step; no eye cream is in stock.");
+    if(!has(p=>p.cat==="moisturizer") && !has(p=>p.cat==="night_cream"))
+      gap("moisturizer","moisturizer",1,"Nothing to moisturize with","Both rituals end without a moisture step — the most basic slot on the shelf.");
+    else if(!has(p=>p.cat==="night_cream"))
+      gap("night","night_cream",1,"Evenings borrow your day moisturizer","No night cream in stock, so the PM build falls back to the day formula.");
+    if(!inSteps(am,p=>p.cat==="toner") && !inSteps(pm,p=>p.cat==="toner"))
+      gap("toner","toner",1,"No toner in stock","Daily builds want a tone step after cleansing; nothing fills it.");
+
+    // 2 · Functional gaps — a flag with no coverage (one active class is enough; never demand both)
+    if(!has(p=>p.soothing))
+      gap("soothing","moisturizer",2,"Nothing soothing for shave nights","Shave nights prefer a calming, fragrance-free product for the hydrate and moisturize slots — no 🌿 soothing product is in stock.");
+    if(has(p=>p.cat==="sunscreen") && has(p=>p.cat==="moisturizer") && !has(p=>p.light&&p.cat==="moisturizer"))
+      gap("light","moisturizer",2,"No light layer under SPF","Mornings pair moisturizer with sunscreen; a light formula sits best underneath.");
+    if(!has(p=>p.active))
+      gap("actives","exfoliant",2,"No actives to schedule","The smart scheduler has nothing to rotate — one class, a retinoid or an acid, is plenty.");
+
+    // 3 · Restock gaps — empty bottle, no in-stock substitute, category not already gapped above
+    const gapped=new Set(gaps.map(g=>g.cat));
+    DB.products.filter(p=>p.qty===0).forEach(p=>{
+      if(gapped.has(p.cat) || has(x=>x.cat===p.cat)) return;
+      gap("restock-"+p.cat, p.cat, 3, `Out of ${catInfo(p.cat).label.toLowerCase()}`,
+        `${p.brand} ${p.name} ran out and nothing else on the shelf covers it.`);
+      gapped.add(p.cat);
+    });
+
+    // 4 · Redundancy (anti-gap) — >2 in stock serving the same category + role
+    const roles={};
+    stocked(p=>true).forEach(p=>{
+      const role=p.cat+(p.active?"·active":p.hydra?"·hydra":"");
+      (roles[role]=roles[role]||[]).push(p);
+    });
+    Object.values(roles).forEach(list=>{
+      if(list.length>2) over.push({cat:list[0].cat, count:list.length, names:list.map(x=>x.brand+" "+x.name)});
+    });
+
+    gaps.sort((a,b)=>a.class-b.class);
+    return {ts:Date.now(), shelfHash:shelfHash(), gaps, over};
+  } finally { DB.trip=trip; }
+}
+// Persist the audit; keep cached AI recs only while the shelf is unchanged.
+function refreshAudit(){
+  const a=auditShelf();
+  const recs=(DB.audit && DB.audit.shelfHash===a.shelfHash) ? (DB.audit.recs||{}) : {};
+  DB.audit={...a, recs}; save();
+  return DB.audit;
+}
+const NTH=["","first","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"];
+const nth=n=>NTH[n]||`${n}th`;
+
+function renderEditRow(){
+  const row=$("#editRow"); if(!row) return;
+  if(!DB.products.length){ row.style.display="none"; return; }
+  const a=auditShelf();
+  const n=a.gaps.length;
+  const dot=!DB.trip && a.gaps.some(g=>g.class===1);   // due-dot pauses while travelling
+  row.style.display="flex";
+  row.innerHTML=`${dot?`<span class="edot"></span>`:""}<span class="ename">The Edit</span>
+    <span class="ecount">${n?`${n} gap${n===1?"":"s"}`:"all good"}</span><span style="color:var(--muted)">›</span>`;
+}
+function openEditSheet(){ refreshAudit(); $("#editModal").classList.add("on"); renderEditSheet(); }
+function closeEditSheet(){ $("#editModal").classList.remove("on"); }
+function renderEditSheet(){
+  const body=$("#editBody"); if(!body) return;
+  const a=DB.audit || refreshAudit();
+  const n=a.gaps.length, o=a.over.length;
+  const verdict = n===0 ? (o ? "Nothing missing — shop your shelf." : "A well-edited shelf.")
+    : n===1 ? "One thing worth adding." : n===2 ? "Two things worth adding." : `${n} things worth adding.`;
+  let h=`<div class="verdict">${verdict}</div>`;
+  if(!n && !o){
+    h+=`<div class="gapcard" style="text-align:center;padding:28px 18px">
+      <div style="font-size:34px;margin-bottom:8px">🤍</div>
+      <div style="font-family:var(--serif);font-size:19px;margin-bottom:4px">Nothing to add.</div>
+      <div class="hint" style="margin:0">Use what you have.</div></div>`;
+  }
+  h+=a.gaps.map(g=>{
+    const ci=catInfo(g.cat);
+    return `<div class="gapcard">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="tile" style="background:${ci.pill};height:44px;width:44px;flex:none;font-size:22px;border-radius:10px">${ci.emoji}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--serif);font-size:17px;line-height:1.25">${esc(g.title)}</div>
+          <div class="hint" style="margin:4px 0 0">${esc(g.why)}</div>
+          <div style="margin-top:7px"><span class="pill" style="background:${ci.pill}">${esc(ci.label)}</span></div>
+        </div>
+      </div>
+      <div data-gapbody="${esc(g.key)}"></div>
+    </div>`;
+  }).join("");
+  if(o){
+    h+=`<div class="hint" style="font-weight:700;margin:18px 0 8px;text-transform:uppercase;letter-spacing:.5px">Overstocked</div>`;
+    h+=a.over.map(v=>{
+      const ci=catInfo(v.cat);
+      return `<div class="gapcard" style="opacity:.72"><div style="display:flex;gap:10px;align-items:center">
+        <span style="font-size:20px;flex:none">${ci.emoji}</span>
+        <div class="hint" style="margin:0">${v.count} ${esc(ci.label.toLowerCase())}s in rotation — the engine cycles them so none gets overused; skip the ${nth(v.count+1)}.</div>
+      </div></div>`;
+    }).join("");
+  }
+  h+=`<div class="hint" style="text-align:center;margin-top:16px">Audited just now — re-runs every time you open this.</div>`;
+  body.innerHTML=h;
+}
+
+/* ============================================================
    UI helpers
    ============================================================ */
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),3000); }
@@ -843,6 +993,7 @@ function renderShelf(){
   $("#shelfCount").innerHTML = `<span>${total} product${total===1?"":"s"} · ${stock} in stock</span>`
     + (total?`<button class="linkbtn" id="clearShelf">Clear all</button>`:"");
   if($("#clearShelf")) $("#clearShelf").onclick=clearShelf;
+  renderEditRow();
 
   const grid=$("#shelfGrid");
   if(!total){
@@ -1834,6 +1985,9 @@ function init(){
   $("#tripBtn").onclick=openTrip;
   $("#closeTrip").onclick=closeTrip;
   $("#tripModal").onclick=e=>{ if(e.target.id==="tripModal") closeTrip(); };
+  $("#editRow").onclick=openEditSheet;
+  $("#closeEditSheet").onclick=closeEditSheet;
+  $("#editModal").onclick=e=>{ if(e.target.id==="editModal") closeEditSheet(); };
   $("#recap").onclick=e=>{ if(e.target.id==="recap") $("#recap").classList.remove("on"); };
 
   switchView("shelf");
