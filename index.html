@@ -141,6 +141,18 @@
   .tog{flex:1 1 30%;border:1px solid var(--line);background:var(--card);color:var(--muted);font-family:var(--sans);
     font-weight:600;font-size:13px;padding:11px 8px;border-radius:var(--r-btn);cursor:pointer;transition:.15s;white-space:nowrap}
   .tog.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tog.due:not(.on){border-color:var(--warn);box-shadow:0 0 0 1px var(--warn) inset}
+  .tog.due:not(.on)::after{content:"•";color:var(--warn);margin-left:4px;font-weight:800}
+  .recbar{font-size:12px;color:var(--muted);margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .recpill{border:1px solid var(--warn);background:rgba(185,138,62,.1);color:#8a6516;font-family:var(--sans);
+    font-size:12px;font-weight:700;padding:5px 11px;border-radius:var(--r-pill);cursor:pointer}
+  .amgroup{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;background:var(--card);overflow:hidden}
+  .amgroup>summary{list-style:none;cursor:pointer;padding:11px 13px;font-size:13px;font-weight:700;color:var(--text);display:flex;align-items:center}
+  .amgroup>summary::-webkit-details-marker{display:none}
+  .amgroup>summary::after{content:"⌄";margin-left:auto;color:var(--muted);font-size:16px;transition:transform .2s}
+  .amgroup[open]>summary::after{transform:rotate(180deg)}
+  .amcount{background:rgba(140,100,68,.12);color:var(--accent);font-size:11px;font-weight:700;padding:1px 8px;border-radius:var(--r-pill);margin-left:8px}
+  .amgroup .amitem{border:none;border-top:1px solid var(--line);border-radius:0;margin:0}
   .venue{font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--r-pill);margin-left:6px;vertical-align:middle}
   .venue.shower{background:#dbe8ef;color:#3f6b82}
   .venue.sink{background:rgba(140,100,68,.12);color:var(--accent)}
@@ -359,6 +371,7 @@
     <div class="togrow">
       <button class="tog" id="shaveTog">🪒 Shave</button>
       <button class="tog" id="noseTog">👃 Nose wax</button>
+      <button class="tog" id="dryTog">🖌️ Dry brush</button>
       <button class="tog" id="showerTog">🚿 Add shower</button>
     </div>
     <div id="ritualOut" style="margin-top:16px"></div>
@@ -408,7 +421,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v20";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v21";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -458,9 +471,14 @@ let mode = "am";     // ritual mode
 let scope = "daily"; // 'quick' | 'daily' | 'full'
 let includeShave = false;
 let includeNoseWax = false;
+let includeDryBrush = false;
 let includeShower = false; // sink is always assumed; toggle adds shower venue badges
 let picks = new Set(); // product ids the user hand-picked to include
-const NOSE_WAX_DAYS = 21; // recommended minimum interval between nose waxes
+let openCats = new Set(); // expanded categories in the "Add to tonight" menu
+// Recommended cadence (days) + minutes for grooming activities.
+const CADENCE = { shave:3, noseWax:21, dryBrush:3 };
+const GROOM_MIN = { shave:6, noseWax:9, dryBrush:3 };
+const GROOM_LABEL = { shave:"🪒 Shave", noseWax:"👃 Nose wax", dryBrush:"🖌️ Dry brush" };
 let filter = "All";  // shelf category filter
 let query = "";
 
@@ -511,6 +529,7 @@ function buildRoutine(routineMode, opts={}){
   const scope = opts.scope || "daily";                 // 'quick' | 'daily' | 'full'
   const shave = !!opts.shave;
   const noseWax = !!opts.noseWax;
+  const dryBrush = !!opts.dryBrush;
   const picks = new Set((opts.picks||[]).map(Number));
   const steps=[], skips=[], used=new Set();
 
@@ -520,13 +539,19 @@ function buildRoutine(routineMode, opts={}){
     const [v,h] = override || howtoFor(p);
     steps.push({p, verb:v, how:h, meta:meta||[]});
   };
+  // Dry grooming happens FIRST, before cleansing (never in the shower).
   const shaveStep = () => steps.push({ shave:true, groom:true,
-    verb:"🪒 Shave", how:"Electric/clipper shave — go with the grain, light pressure, then rinse away debris. Skip strong actives so freshly-shaved skin can recover.",
-    meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
+    verb:"🪒 Shave", how:"Electric/clipper shave on dry skin, before you cleanse — go with the grain, light pressure. Skip strong actives so freshly-shaved skin can recover.",
+    meta:["grooming · first"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
   const noseWaxStep = () => steps.push({ noseWax:true, groom:true,
     verb:"👃 Nose wax", how:"Warm the wax, coat the applicator, insert and hold ~90s, then remove. Only every ~3 weeks.",
     meta:["grooming · every 3 wks"], p:{id:-2, cat:"groom", brand:"", name:"Nose wax"} });
-  if(noseWax) noseWaxStep();   // grooming first; no bearing on the skincare steps
+  const dryBrushStep = () => steps.push({ dryBrush:true, groom:true,
+    verb:"🖌️ Dry brush", how:"On completely dry skin (before cleansing), brush gently upward and outward for ~2 min to stimulate and lightly exfoliate.",
+    meta:["grooming · dry skin"], p:{id:-3, cat:"groom", brand:"", name:"Dry brush"} });
+  if(shave) shaveStep();       // shave first
+  if(noseWax) noseWaxStep();
+  if(dryBrush) dryBrushStep();
 
   // scope → which optional steps turn on
   const SC = ({
@@ -545,7 +570,6 @@ function buildRoutine(routineMode, opts={}){
   if(!isPM){
     // ---------- MORNING ----------
     add(pickInc(p=>p.am && p.cat==="cleanser", preferFav));
-    if(shave) shaveStep();
     if(want("toner", SC.toner)) add(pickInc(p=>p.am && p.cat==="toner", preferMedicube));
     add(pickInc(p=>p.am && p.hydra));
     if(want("eye_cream", SC.eye)) add(pickInc(p=>p.am && p.cat==="eye_cream"));
@@ -556,7 +580,6 @@ function buildRoutine(routineMode, opts={}){
     // ---------- EVENING ----------
     if(SC.dbl || pickedCat("cleanser")) add(pickInc(p=>p.oil));
     add(pickInc(p=>p.cat==="cleanser" && !p.oil, preferFav));
-    if(shave) shaveStep();
 
     // mask step (full scope, or a picked mask/sheet)
     if(!shave && (want("mask", SC.mask) || want("sheet_mask", SC.sheet))){
@@ -613,7 +636,7 @@ function buildRoutine(routineMode, opts={}){
   // Redundancy guard: if a category is already covered, set aside in-stock
   // duplicates so you don't overuse the same *kind* of product.
   const usedByCat={};
-  steps.forEach(s=>{ if(!s.shave) (usedByCat[s.p.cat]=usedByCat[s.p.cat]||[]).push(s.p); });
+  steps.forEach(s=>{ if(!s.groom) (usedByCat[s.p.cat]=usedByCat[s.p.cat]||[]).push(s.p); });
   inStock(p=>true).forEach(p=>{
     if(used.has(p.id) || p.active) return;
     const chosen = usedByCat[p.cat];
@@ -630,7 +653,9 @@ function buildRoutine(routineMode, opts={}){
 function estimateMinutes(steps){
   let m=0;
   steps.forEach(s=>{
-    if(s.groom) m+=3;
+    if(s.shave) m+=GROOM_MIN.shave;
+    else if(s.noseWax) m+=GROOM_MIN.noseWax;
+    else if(s.dryBrush) m+=GROOM_MIN.dryBrush;
     else if(s.p.cat==="mask") m+=12;
     else if(s.p.cat==="sheet_mask") m+=18;
     else if(s.p.cat==="cleanser") m+=1.5;
@@ -779,22 +804,37 @@ function removeProd(id){
    Ritual
    ============================================================ */
 // Which venue a step happens at (only shown when the shower is included).
+// Grooming (shave/nose wax/dry brush) is dry and done first — at the sink.
 function stepVenue(s){
-  if(s.noseWax) return "sink";
-  if(s.shave) return "shower";
+  if(s.groom) return "sink";
   return (s.p.cat==="cleanser" || s.p.cat==="mask") ? "shower" : "sink";
 }
+// Grooming cadence helpers.
+function lastGroomTs(kind){ const e=DB.log.filter(x=>x[kind]).sort((a,b)=>b.ts-a.ts)[0]; return e?e.ts:null; }
+function groomDaysAgo(kind){ const t=lastGroomTs(kind); return t?daysSince(t):Infinity; }
+function groomDue(kind){ return groomDaysAgo(kind) >= CADENCE[kind]; }
 function renderRitual(){
   const out=$("#ritualOut"); if(!out) return;
   [...picks].forEach(id=>{ if(!DB.products.some(p=>p.id===id && p.qty>0)) picks.delete(id); }); // prune stale picks
-  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, noseWax:includeNoseWax, picks:[...picks]});
+  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, noseWax:includeNoseWax, dryBrush:includeDryBrush, picks:[...picks]});
+  // reflect "due" state on the grooming toggles
+  [["shave","#shaveTog",includeShave],["noseWax","#noseTog",includeNoseWax],["dryBrush","#dryTog",includeDryBrush]]
+    .forEach(([k,sel,on])=>{ const el=$(sel); if(el) el.classList.toggle("due", !on && groomDue(k)); });
   if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Add products on the Shelf tab.</div>`; return; }
 
   const mins=estimateMinutes(steps);
-  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""} · ${includeShower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
+  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""}${includeDryBrush?" · 🖌️ dry brush":""} · ${includeShower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
+
+  // Cadence recommendations: grooming that's due but not toggled on.
+  const recs=[["shave",includeShave],["noseWax",includeNoseWax],["dryBrush",includeDryBrush]]
+    .filter(([k,on])=>!on && groomDue(k)).map(([k])=>({k, d:groomDaysAgo(k)}));
+  if(recs.length){
+    html += `<div class="recbar">Due today: ` + recs.map(r=>
+      `<button class="recpill" data-groomrec="${r.k}">${GROOM_LABEL[r.k]}${r.d!==Infinity?` · ${r.d}d ago`:" · new"}</button>`).join(" ") + `</div>`;
+  }
   if(includeNoseWax){
-    const d=noseWaxDaysAgo();
-    if(d<NOSE_WAX_DAYS) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">⚠️ Last nose wax was ${d} day${d===1?"":"s"} ago — recommended every 3 weeks (${NOSE_WAX_DAYS-d} to go).</div>`;
+    const d=groomDaysAgo('noseWax');
+    if(d<CADENCE.noseWax) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">⚠️ Last nose wax was ${d} day${d===1?"":"s"} ago — recommended every 3 weeks (${CADENCE.noseWax-d} to go).</div>`;
   }
   html += steps.map(s=>{
     const metaItems = s.groom ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
@@ -827,25 +867,34 @@ function renderRitual(){
   if(!notIn.length){
     html += `<div class="amsub">Everything on your shelf is already in tonight's ritual.</div>`;
   } else {
-    html += `<div class="amsub">On your shelf but not in tonight's ritual — tap to add.</div>`;
+    html += `<div class="amsub">On your shelf but not in tonight's ritual — tap a section to expand.</div>`;
     const byCat={}; notIn.forEach(p=>{ (byCat[p.cat]=byCat[p.cat]||[]).push(p); });
     Object.keys(byCat).sort((a,b)=>(STEP_OF[a]??9)-(STEP_OF[b]??9)).forEach(cat=>{
-      html += `<div class="amcat">${catInfo(cat).emoji} ${esc(catInfo(cat).label)}</div>`;
-      html += byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>
+      const items = byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>
         `<button class="amitem" data-add="${p.id}"><span class="amadd">＋</span>`
         + `<div class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</div>`
         + (skipWhy[p.id]?`<div class="amwhy">${esc(skipWhy[p.id])}</div>`:"")
         + `</button>`
       ).join("");
+      html += `<details class="amgroup" data-cat="${esc(cat)}"${openCats.has(cat)?" open":""}>`
+        + `<summary>${catInfo(cat).emoji} ${esc(catInfo(cat).label)} <span class="amcount">${byCat[cat].length}</span></summary>${items}</details>`;
     });
   }
   html += `</div>`;
 
   const ids=steps.filter(s=>s.p.id>0).map(s=>s.p.id);
-  const extra=[includeShave?"shave":"", includeNoseWax?"nose wax":""].filter(Boolean).join(" + ");
+  const extra=[includeShave?"shave":"", includeNoseWax?"nose wax":"", includeDryBrush?"dry brush":""].filter(Boolean).join(" + ");
   html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${extra?" + "+extra:""}</button>`;
   out.innerHTML=html;
-  $("#logBtn").onclick=()=>logRoutine(ids, includeShave, includeNoseWax);
+  $("#logBtn").onclick=()=>logRoutine(ids, includeShave, includeNoseWax, includeDryBrush);
+  out.querySelectorAll("[data-groomrec]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.groomrec;
+    if(k==="shave"){ includeShave=true; $("#shaveTog").classList.add("on"); }
+    else if(k==="noseWax"){ includeNoseWax=true; $("#noseTog").classList.add("on"); }
+    else if(k==="dryBrush"){ includeDryBrush=true; $("#dryTog").classList.add("on"); }
+    renderRitual();
+  });
+  out.querySelectorAll("details.amgroup").forEach(d=>d.addEventListener("toggle",()=>{ d.open?openCats.add(d.dataset.cat):openCats.delete(d.dataset.cat); }));
   out.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const id=+b.dataset.add, p=DB.products.find(x=>x.id===id);
     if(p){ [...picks].forEach(pid=>{ const pp=DB.products.find(x=>x.id===pid); if(pp && pp.cat===p.cat) picks.delete(pid); }); picks.add(id); }
@@ -853,24 +902,23 @@ function renderRitual(){
   });
   out.querySelectorAll("[data-unpick]").forEach(b=>b.onclick=()=>{ picks.delete(+b.dataset.unpick); renderRitual(); });
 }
-function logRoutine(ids, shave, noseWax){
+function logRoutine(ids, shave, noseWax, dryBrush){
   const now=Date.now();
-  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax});
+  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
-  save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax);
+  save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax, dryBrush);
 }
-function lastNoseWaxTs(){ const e=DB.log.filter(x=>x.noseWax).sort((a,b)=>b.ts-a.ts)[0]; return e?e.ts:null; }
-function noseWaxDaysAgo(){ const t=lastNoseWaxTs(); return t?daysSince(t):Infinity; }
 
 /* ============================================================
    Recap
    ============================================================ */
-function showRecap(ids, shave, noseWax){
+function showRecap(ids, shave, noseWax, dryBrush){
   const n=currentStreak();
   const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
   const stepList=ids.map(id=>{ const p=meta(id); return `<div class="s"><b>·</b> ${esc(p.brand)} — ${esc(p.name)}</div>`; }).join("")
     + (shave?`<div class="s"><b>·</b> 🪒 Shave</div>`:"")
-    + (noseWax?`<div class="s"><b>·</b> 👃 Nose wax</div>`:"");
+    + (noseWax?`<div class="s"><b>·</b> 👃 Nose wax</div>`:"")
+    + (dryBrush?`<div class="s"><b>·</b> 🖌️ Dry brush</div>`:"");
   $("#recapCard").innerHTML=`
     <div class="fire">${n>0?"🔥":"✨"}</div>
     <div class="rtitle">Ritual complete</div>
@@ -894,20 +942,15 @@ function renderRhythm(){
   const n=currentStreak();
   const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
 
-  // grooming: last shave
-  const shaves=DB.log.filter(e=>e.shave).sort((a,b)=>b.ts-a.ts);
-  const lastShaveTxt = shaves.length
-    ? (()=>{ const d=daysSince(shaves[0].ts); return d===0?"today":d===1?"yesterday":`${d} days ago`; })()
-    : "not yet logged";
-  const shaveWeek=shaves.filter(e=>(Date.now()-e.ts)<7*DAY).length;
-
-  // grooming: nose wax (metered every 3 weeks)
-  const nwAgo=noseWaxDaysAgo();
-  const nwTxt = nwAgo===Infinity ? "not yet logged" : nwAgo===0?"today":nwAgo===1?"yesterday":`${nwAgo} days ago`;
-  const nwReady = nwAgo>=NOSE_WAX_DAYS;
-  const nwPill = nwAgo===Infinity ? "" : nwReady
-    ? `<span class="statuspill ready">Ready</span>`
-    : `<span class="statuspill wait">In ${NOSE_WAX_DAYS-nwAgo}d</span>`;
+  // grooming rows with cadence status
+  const cadTxt = k => CADENCE[k]>=21 ? "every ~3 weeks" : `every ~${CADENCE[k]} days`;
+  const groomRow = (k, label) => {
+    const ago=groomDaysAgo(k);
+    const last = ago===Infinity?"not logged yet":ago===0?"today":ago===1?"yesterday":`${ago}d ago`;
+    const pill = ago>=CADENCE[k] ? `<span class="statuspill ready">Due now</span>`
+      : `<span class="statuspill wait">In ${CADENCE[k]-ago}d</span>`;
+    return `<div class="sched"><div><div class="nm">${label}</div><div class="br">${cadTxt(k)} · last ${last}</div></div>${pill}</div>`;
+  };
 
   // active scheduling status
   const actives=inStock(p=>p.active);
@@ -942,16 +985,19 @@ function renderRhythm(){
       <div style="font-size:14px">You've logged <b>${week}</b> ritual${week===1?"":"s"} in the last 7 days.</div>
     </div>
     <div class="panel"><h3>Grooming</h3>
-      <div style="font-size:14px;margin-bottom:10px">🪒 Last shave: <b>${esc(lastShaveTxt)}</b>${shaveWeek?` · ${shaveWeek} this week`:""}</div>
-      <button class="btn ghost" id="logShaveBtn" style="margin-bottom:16px">🪒 Log a shave now</button>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;margin-bottom:10px">
-        <span>👃 Last nose wax: <b>${esc(nwTxt)}</b></span>${nwPill}
+      ${groomRow("shave","🪒 Shave")}
+      ${groomRow("noseWax","👃 Nose wax")}
+      ${groomRow("dryBrush","🖌️ Dry brush")}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button class="btn ghost" id="logShaveBtn" style="flex:1;min-width:110px">🪒 Log shave</button>
+        <button class="btn ghost" id="logNoseBtn" style="flex:1;min-width:110px">👃 Log nose wax</button>
+        <button class="btn ghost" id="logDryBtn" style="flex:1;min-width:110px">🖌️ Log dry brush</button>
       </div>
-      <button class="btn ghost" id="logNoseBtn">👃 Log a nose wax</button>
     </div>
     <div class="panel" id="calWrap"></div>`;
   $("#logShaveBtn").onclick=logShaveNow;
   $("#logNoseBtn").onclick=logNoseWaxNow;
+  $("#logDryBtn").onclick=logDryBrushNow;
   renderCalendar();
 }
 function logShaveNow(){
@@ -960,10 +1006,14 @@ function logShaveNow(){
   save(); buzz(15); toast("Shave logged 🪒"); renderRhythm();
 }
 function logNoseWaxNow(){
-  const d=noseWaxDaysAgo();
-  if(d<NOSE_WAX_DAYS && !confirm(`Last nose wax was ${d} day${d===1?"":"s"} ago. Recommended no more than once every 3 weeks — log it anyway?`)) return;
+  const d=groomDaysAgo('noseWax');
+  if(d<CADENCE.noseWax && !confirm(`Last nose wax was ${d} day${d===1?"":"s"} ago. Recommended no more than once every 3 weeks — log it anyway?`)) return;
   DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], noseWax:true});
   save(); buzz(15); toast("Nose wax logged 👃"); renderRhythm();
+}
+function logDryBrushNow(){
+  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], dryBrush:true});
+  save(); buzz(15); toast("Dry brush logged 🖌️"); renderRhythm();
 }
 
 /* Calendar of logged rituals — tap a day to see what was used. */
@@ -989,7 +1039,7 @@ function renderCalendar(){
     const entries=byDay[dk]||[];
     const hasAM=entries.some(e=>e.mode==="am" && e.products && e.products.length);
     const hasPM=entries.some(e=>e.mode==="pm" && e.products && e.products.length);
-    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"");
+    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"")+(entries.some(e=>e.dryBrush)?"🖌️":"");
     const cls=["calday"];
     if(entries.length) cls.push("has");
     if(dk===todayKey) cls.push("today");
@@ -1008,14 +1058,14 @@ function renderCalendar(){
         const hasProds = e.products && e.products.length;
         const del=`<button class="cd-del" data-del="${e.ts}" title="Delete this entry">✕</button>`;
         if(!hasProds){
-          const g=[e.shave?"🪒 Shave":"", e.noseWax?"👃 Nose wax":""].filter(Boolean).join(" + ") || "Logged";
+          const g=[e.shave?"🪒 Shave":"", e.noseWax?"👃 Nose wax":"", e.dryBrush?"🖌️ Dry brush":""].filter(Boolean).join(" + ") || "Logged";
           return `<div class="cd-entry"><div class="cd-mode">${esc(g)} · ${esc(t)}${del}</div></div>`;
         }
-        const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
+        const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.dryBrush?"🖌️ ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
         const prods=(e.products||[]).map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
         return `<div class="cd-entry"><div class="cd-mode">${esc(head)}${del}</div><ul>${prods}</ul></div>`;
       }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)
-      +`<div class="cd-add">Add to this day: <button class="cd-addbtn" data-add="shave">🪒 Shave</button> <button class="cd-addbtn" data-add="noseWax">👃 Nose wax</button></div></div>`;
+      +`<div class="cd-add">Add to this day: <button class="cd-addbtn" data-add="shave">🪒 Shave</button> <button class="cd-addbtn" data-add="noseWax">👃 Nose wax</button> <button class="cd-addbtn" data-add="dryBrush">🖌️ Dry brush</button></div></div>`;
   }
 
   wrap.innerHTML=`
@@ -1035,7 +1085,7 @@ function renderCalendar(){
 }
 function delLogEntry(ts){
   const e=DB.log.find(x=>x.ts===ts); if(!e) return;
-  const label = e.shave&&!e.products.length ? "shave" : e.noseWax&&!e.products.length ? "nose wax" : "ritual";
+  const label = !e.products.length ? (e.shave?"shave":e.noseWax?"nose wax":e.dryBrush?"dry brush":"grooming") : "ritual";
   if(!confirm(`Delete this ${label} entry?`)) return;
   DB.log=DB.log.filter(x=>x.ts!==ts);
   save(); buzz(15); refreshStreak(); toast("Entry deleted"); renderRhythm();
@@ -1046,9 +1096,9 @@ function addRetroGroom(dayK, kind){
   let ts=new Date(yy,mm,dd,12,0,0).getTime();
   while(DB.log.some(e=>e.ts===ts)) ts++;                 // keep timestamps unique
   const entry={ts, mode:"pm", products:[]};
-  if(kind==="shave") entry.shave=true; else entry.noseWax=true;
+  entry[kind]=true;
   DB.log.push(entry);
-  save(); buzz(15); toast(kind==="shave"?"Shave added 🪒":"Nose wax added 👃"); renderRhythm();
+  save(); buzz(15); toast(GROOM_LABEL[kind]?GROOM_LABEL[kind]+" added":"Added"); renderRhythm();
 }
 
 /* ============================================================
@@ -1448,6 +1498,7 @@ function init(){
   });
   $("#shaveTog").onclick=()=>{ includeShave=!includeShave; $("#shaveTog").classList.toggle("on",includeShave); renderRitual(); };
   $("#noseTog").onclick=()=>{ includeNoseWax=!includeNoseWax; $("#noseTog").classList.toggle("on",includeNoseWax); renderRitual(); };
+  $("#dryTog").onclick=()=>{ includeDryBrush=!includeDryBrush; $("#dryTog").classList.toggle("on",includeDryBrush); renderRitual(); };
   $("#showerTog").onclick=()=>{ includeShower=!includeShower; $("#showerTog").classList.toggle("on",includeShower); renderRitual(); };
   $("#searchIn").oninput=e=>{ query=e.target.value; renderShelf(); };
   $("#fab").onclick=openAdd;
