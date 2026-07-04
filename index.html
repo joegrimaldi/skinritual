@@ -457,7 +457,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v28";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v29";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -1662,25 +1662,33 @@ function renderTripSheet(){
     html += `<div class="amsub">✨ Auto-packed <b>${kit.length}</b> item${kit.length===1?"":"s"} for ${tripNights} night${tripNights===1?"":"s"} — TSA-fit, reusable, facial-ready. <a href="#" id="repack">↻ re-pack</a></div>`;
     if(tripLeftHome.length) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">🏠 Left home: ${esc(tripLeftHome.map(p=>p.name).join(", "))} — trip's too short to use ${tripLeftHome.length>1?"them":"it"} enough.</div>`;
   }
-  html += `<div class="amsub">${active?"Tap to add/remove — rituals update live.":"Adjust anything below."}</div>`;
+  // Row renderer (shared by the packed list and the add-more section)
+  const rowFor = p=>{
+    const k=inKit(p.id), liq=isLiquidP(p), chk=isChecked(p.id), m=effMl(p);
+    let chip;
+    if(!liq) chip=`<span class="sizechip solid">solid</span>`;
+    else if(chk) chip=`<span class="sizechip checked" data-uncheck="${p.id}">✈️ checked</span>`;
+    else if(m==null) chip=`<span class="sizechip warn" data-size="${p.id}">size?</span>`;
+    else chip=`<span class="sizechip ${m<=TSA.maxMl?"ok":"warn"}" data-size="${p.id}">${m} mL${p.decant!=null?" · decant":""}</span>`;
+    const fix = (k&&liq&&!chk&&carryon&&!carryOk(p))
+      ? `<div class="kitfix">⚠️ over 100 mL — <button data-fix="swap" data-id="${p.id}">swap smaller</button> · <button data-fix="decant" data-id="${p.id}">decant</button> · <button data-fix="checked" data-id="${p.id}">checked bag</button></div>` : "";
+    return `<div class="kitrow ${k?"on":""}">
+      <button class="kittoggle" data-kit="${p.id}"><span class="amadd">${k?"✓":"＋"}</span><span class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</span></button>
+      ${chip}${fix}</div>`;
+  };
+  const byStep = (a,b)=>(STEP_OF[a.cat]??9)-(STEP_OF[b.cat]??9) || a.name.localeCompare(b.name);
 
-  const byCat={}; stock.forEach(p=>{ (byCat[p.cat]=byCat[p.cat]||[]).push(p); });
-  Object.keys(byCat).sort((a,b)=>(STEP_OF[a]??9)-(STEP_OF[b]??9)).forEach(cat=>{
-    html+=`<div class="amcat" style="margin:14px 0 6px">${catInfo(cat).emoji} ${esc(catInfo(cat).label)}</div>`;
-    html+=byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>{
-      const k=inKit(p.id), liq=isLiquidP(p), chk=isChecked(p.id), m=effMl(p);
-      let chip;
-      if(!liq) chip=`<span class="sizechip solid">solid</span>`;
-      else if(chk) chip=`<span class="sizechip checked" data-uncheck="${p.id}">✈️ checked</span>`;
-      else if(m==null) chip=`<span class="sizechip warn" data-size="${p.id}">size?</span>`;
-      else chip=`<span class="sizechip ${m<=TSA.maxMl?"ok":"warn"}" data-size="${p.id}">${m} mL${p.decant!=null?" · decant":""}</span>`;
-      const fix = (k&&liq&&!chk&&carryon&&!carryOk(p))
-        ? `<div class="kitfix">⚠️ over 100 mL — <button data-fix="swap" data-id="${p.id}">swap smaller</button> · <button data-fix="decant" data-id="${p.id}">decant</button> · <button data-fix="checked" data-id="${p.id}">checked bag</button></div>` : "";
-      return `<div class="kitrow ${k?"on":""}">
-        <button class="kittoggle" data-kit="${p.id}"><span class="amadd">${k?"✓":"＋"}</span><span class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</span></button>
-        ${chip}${fix}</div>`;
-    }).join("");
-  });
+  // PRIMARY: the recommended / packed kit
+  const packed = kit.map(id=>DB.products.find(p=>p.id===id)).filter(Boolean).sort(byStep);
+  html += `<div class="amcat" style="margin:14px 0 6px">${active?"✈️ In your kit":"✨ Recommended kit"} · ${packed.length}</div>`;
+  html += packed.length ? packed.map(rowFor).join("") : `<div class="amsub">Nothing packed yet — add from your shelf below.</div>`;
+
+  // SECONDARY: add more from the shelf (collapsed)
+  const unpacked = stock.filter(p=>!inKit(p.id)).sort(byStep);
+  if(unpacked.length){
+    html += `<details class="amgroup" style="margin-top:12px"><summary>＋ Add more from your shelf <span class="amcount">${unpacked.length}</span></summary>`
+      + unpacked.map(rowFor).join("") + `</details>`;
+  }
   html += active
     ? `<button class="btn ghost" id="endTripBtn" style="margin-top:18px">End trip — back to full shelf</button>`
     : `<button class="btn primary" id="startTripBtn" style="margin-top:18px">Start trip →</button>`;
