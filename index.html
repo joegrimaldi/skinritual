@@ -455,7 +455,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v34.3";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v35";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -519,6 +519,7 @@ let includeShave = false;
 let includeNoseWax = false;
 let includeDryBrush = false;
 let picks = new Set(); // product ids the user hand-picked to include
+let excluded = new Set(); // product ids removed from tonight's proposed ritual
 let openCats = new Set(); // expanded categories in the "Add to tonight" menu
 // Recommended cadence (days) + minutes for grooming activities. dryBrush=1 → up to daily.
 const CADENCE = { shave:3, noseWax:21, dryBrush:1 };
@@ -584,7 +585,9 @@ function usesInLast7(id, atTs=Date.now()){
   return DB.log.filter(e => (atTs - e.ts) < 7*DAY && (atTs - e.ts) >= 0 && e.products.includes(id)).length;
 }
 // When a trip is active, scope everything (rituals, forecast, add-menu) to the kit.
-function inStock(pred){ const t=DB.trip; return DB.products.filter(p => p.qty>0 && (!t || t.kit.includes(p.id)) && pred(p)); }
+// _excl (set only during a buildRoutine call) drops products removed from tonight's ritual.
+let _excl = null;
+function inStock(pred){ const t=DB.trip; return DB.products.filter(p => p.qty>0 && (!t || t.kit.includes(p.id)) && (!_excl || !_excl.has(p.id)) && pred(p)); }
 // Pick ONE product, rotating to the least-recently-used so no single bottle
 // gets overused; `rank` (fav/light/etc.) only breaks ties among equal recency.
 function pick(pred, rank){
@@ -610,6 +613,7 @@ const preferMedicube = (a,b)=>(a.brand==="Medicube"?-1:0)-(b.brand==="Medicube"?
 /* Build an ordered routine driven by scope, shave, location, and hand-picked
    products. Returns {steps:[{p,verb,how,meta:[]}], skips:[{p,why}]}. */
 function buildRoutine(routineMode, opts={}){
+  _excl = opts.exclude || null;                        // products removed from tonight
   const scope = opts.scope || "daily";                 // 'quick' | 'daily' | 'full'
   const shave = !!opts.shave;
   const noseWax = !!opts.noseWax;
@@ -752,6 +756,7 @@ function buildRoutine(routineMode, opts={}){
   });
 
   steps.forEach((s,i)=>s.n=i+1);
+  _excl = null;
   return {steps, skips};
 }
 // Rough time estimate for the built routine.
@@ -924,7 +929,7 @@ function renderRitual(){
   const out=$("#ritualOut"); if(!out) return;
   [...picks].forEach(id=>{ if(!DB.products.some(p=>p.id===id && p.qty>0)) picks.delete(id); }); // prune stale picks
   const R=resolveTier(); const shower=!!R.shower;
-  const {steps,skips}=buildRoutine(R.mode, {scope:R.scope, shave:includeShave, noseWax:includeNoseWax, dryBrush:includeDryBrush, picks:[...picks]});
+  const {steps,skips}=buildRoutine(R.mode, {scope:R.scope, shave:includeShave, noseWax:includeNoseWax, dryBrush:includeDryBrush, picks:[...picks], exclude:excluded});
   // reflect "due" state on the grooming toggles
   [["shave","#shaveTog",includeShave],["noseWax","#noseTog",includeNoseWax],["dryBrush","#dryTog",includeDryBrush]]
     .forEach(([k,sel,on])=>{ const el=$(sel); if(el) el.classList.toggle("due", !on && groomDue(k)); });
@@ -950,7 +955,7 @@ function renderRitual(){
     const meta = metaItems.map(m=>`<span>${esc(m)}</span>`).join("");
     const who = s.groom ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
     const vb = shower ? `<span class="venue ${stepVenue(s)}">${stepVenue(s)==="shower"?"🚿 Shower":"🚰 Sink"}</span>` : "";
-    const rm = picks.has(s.p.id) ? `<button class="stepx" data-unpick="${s.p.id}" title="Remove">✕</button>` : "";
+    const rm = (!s.groom && s.p.id>0) ? `<button class="stepx" data-remove="${s.p.id}" title="Remove from tonight">✕</button>` : "";
     return `<div class="step">
       <div class="stepn">${s.n}</div>
       <div style="flex:1;min-width:0">
@@ -1010,15 +1015,17 @@ function renderRitual(){
   out.querySelectorAll("details.amgroup").forEach(d=>d.addEventListener("toggle",()=>{ d.open?openCats.add(d.dataset.cat):openCats.delete(d.dataset.cat); }));
   out.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{
     const id=+b.dataset.add, p=DB.products.find(x=>x.id===id);
+    excluded.delete(id);                               // re-adding cancels a prior removal
     if(p){ [...picks].forEach(pid=>{ const pp=DB.products.find(x=>x.id===pid); if(pp && pp.cat===p.cat) picks.delete(pid); }); picks.add(id); }
     renderRitual();
   });
-  out.querySelectorAll("[data-unpick]").forEach(b=>b.onclick=()=>{ picks.delete(+b.dataset.unpick); renderRitual(); });
+  out.querySelectorAll("[data-remove]").forEach(b=>b.onclick=()=>{ const id=+b.dataset.remove; excluded.add(id); picks.delete(id); renderRitual(); });
 }
 function logRoutine(ids, shave, noseWax, dryBrush, logMode){
   const now=Date.now();
   DB.log.push({ts:now, mode:logMode||"pm", products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush, travel:!!DB.trip});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
+  excluded=new Set(); picks=new Set();   // reset tonight's tweaks after logging
   save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax, dryBrush);
 }
 
