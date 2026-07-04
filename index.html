@@ -153,6 +153,14 @@
   .amgroup[open]>summary::after{transform:rotate(180deg)}
   .amcount{background:rgba(140,100,68,.12);color:var(--accent);font-size:11px;font-weight:700;padding:1px 8px;border-radius:var(--r-pill);margin-left:8px}
   .amgroup .amitem{border:none;border-top:1px solid var(--line);border-radius:0;margin:0}
+  .amitem.on{border-color:var(--accent);background:rgba(140,100,68,.08)}
+  .amitem.on .amadd{color:var(--accent)}
+  .updbtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tripnights{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:14px;font-weight:600}
+  .tripbanner{display:flex;align-items:center;gap:8px;background:rgba(140,100,68,.09);color:var(--accent);
+    font-size:12.5px;font-weight:700;padding:9px 13px;border-radius:var(--r-btn);margin-bottom:12px}
+  .kitbadge{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;font-size:11px;
+    padding:2px 7px;border-radius:var(--r-pill);z-index:2}
   .venue{font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--r-pill);margin-left:6px;vertical-align:middle}
   .venue.shower{background:#dbe8ef;color:#3f6b82}
   .venue.sink{background:rgba(140,100,68,.12);color:var(--accent)}
@@ -335,6 +343,8 @@
       </div>
       <div class="htools">
         <div class="streakchip zero" id="streakChip" title="Daily ritual streak">🔥 <span id="streakN">0</span></div>
+        <div class="streakchip" id="tripChip" title="Trip nights remaining" style="display:none"></div>
+        <button class="updbtn" id="tripBtn" title="Dopp kit / travel mode" aria-label="Travel">✈️</button>
         <button class="updbtn" id="updBtn" title="Update to newest version" aria-label="Update">⟳</button>
       </div>
     </div>
@@ -408,6 +418,14 @@
   </div>
 </div>
 
+<div class="modal" id="tripModal">
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sh-head"><h3 id="tripTitle">Pack your Dopp kit</h3><button class="xbtn" id="closeTrip" aria-label="Close">✕</button></div>
+    <div id="tripBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <div class="recap" id="recap"><div class="recapcard" id="recapCard"></div></div>
 
@@ -421,7 +439,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v25";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v26";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -538,7 +556,8 @@ function daysSince(ts){ return ts ? Math.floor((Date.now()-ts)/DAY) : Infinity; 
 function usesInLast7(id, atTs=Date.now()){
   return DB.log.filter(e => (atTs - e.ts) < 7*DAY && (atTs - e.ts) >= 0 && e.products.includes(id)).length;
 }
-function inStock(pred){ return DB.products.filter(p => p.qty>0 && pred(p)); }
+// When a trip is active, scope everything (rituals, forecast, add-menu) to the kit.
+function inStock(pred){ const t=DB.trip; return DB.products.filter(p => p.qty>0 && (!t || t.kit.includes(p.id)) && pred(p)); }
 // Pick ONE product, rotating to the least-recently-used so no single bottle
 // gets overused; `rank` (fav/light/etc.) only breaks ties among equal recency.
 function pick(pred, rank){
@@ -799,7 +818,9 @@ function renderShelf(){
     if(p.am) tags.push(`<span class="tg">☀️ AM</span>`);
     if(p.pm) tags.push(`<span class="tg">🌙 PM</span>`);
     if(p.freq && p.freq!=="Daily") tags.push(`<span class="tg">${esc(p.freq)}</span>`);
+    const inKit = DB.trip && DB.trip.kit.includes(p.id);
     return `<div class="card" data-id="${p.id}">
+      ${inKit?`<span class="kitbadge">✈️</span>`:""}
       <div class="tile" style="background:${ci.pill}">${ci.emoji}</div>
       <div class="brand">${esc(p.brand)}</div>
       <div class="pname">${esc(p.name)}</div>
@@ -869,7 +890,8 @@ function renderRitual(){
   if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Add products on the Shelf tab.</div>`; return; }
 
   const mins=estimateMinutes(steps);
-  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""}${includeDryBrush?" · 🖌️ dry brush":""} · ${includeShower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
+  let html = DB.trip ? `<div class="tripbanner">✈️ Building from your Dopp kit · ${DB.trip.kit.length} item${DB.trip.kit.length===1?"":"s"}</div>` : "";
+  html += `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""}${includeDryBrush?" · 🖌️ dry brush":""} · ${includeShower?"🚿 shower + 🚰 sink":"🚰 sink"}</div>`;
 
   // Cadence recommendations: grooming that's due but not toggled on.
   const recs=[["shave",includeShave],["noseWax",includeNoseWax],["dryBrush",includeDryBrush]]
@@ -950,7 +972,7 @@ function renderRitual(){
 }
 function logRoutine(ids, shave, noseWax, dryBrush){
   const now=Date.now();
-  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush});
+  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax, dryBrush:!!dryBrush, travel:!!DB.trip});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
   save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax, dryBrush);
 }
@@ -1058,17 +1080,17 @@ function renderRhythm(){
 }
 function logShaveNow(){
   const now=Date.now();
-  DB.log.push({ts:now, mode:(new Date().getHours()<12?"am":"pm"), products:[], shave:true});
+  DB.log.push({ts:now, mode:(new Date().getHours()<12?"am":"pm"), products:[], shave:true, travel:!!DB.trip});
   save(); buzz(15); toast("Shave logged 🪒"); renderRhythm();
 }
 function logNoseWaxNow(){
   const d=groomDaysAgo('noseWax');
   if(d<CADENCE.noseWax && !confirm(`Last nose wax was ${d} day${d===1?"":"s"} ago. Recommended no more than once every 3 weeks — log it anyway?`)) return;
-  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], noseWax:true});
+  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], noseWax:true, travel:!!DB.trip});
   save(); buzz(15); toast("Nose wax logged 👃"); renderRhythm();
 }
 function logDryBrushNow(){
-  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], dryBrush:true});
+  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], dryBrush:true, travel:!!DB.trip});
   save(); buzz(15); toast("Dry brush logged 🖌️"); renderRhythm();
 }
 
@@ -1095,7 +1117,7 @@ function renderCalendar(){
     const entries=byDay[dk]||[];
     const hasAM=entries.some(e=>e.mode==="am" && e.products && e.products.length);
     const hasPM=entries.some(e=>e.mode==="pm" && e.products && e.products.length);
-    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"")+(entries.some(e=>e.dryBrush)?"🖌️":"");
+    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"")+(entries.some(e=>e.dryBrush)?"🖌️":"")+(entries.some(e=>e.travel)?"✈️":"");
     const cls=["calday"];
     if(entries.length) cls.push("has");
     if(dk===todayKey) cls.push("today");
@@ -1340,7 +1362,8 @@ function saveProduct(editId){
   } else {
     const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
     DB.products.push({id, ...fields, qty:1, lastUsed:null});
-    toast(`Added ${name}`);
+    if(DB.trip){ DB.trip.kit.push(id); DB.trip.packed.push(id); toast(`Added to your Dopp kit ✈️`); }
+    else toast(`Added ${name}`);
   }
   save(); closeAdd(); renderChips(); renderShelf();
 }
@@ -1470,7 +1493,8 @@ function addFromProfile(pr){
   DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
     step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra, soothing:pr.soothing,
     verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
-  save(); toast(`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
+  if(DB.trip){ DB.trip.kit.push(id); DB.trip.packed.push(id); }
+  save(); toast(DB.trip?`Added to your Dopp kit ✈️`:`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf();
 }
 async function runAI(file){
   const key=localStorage.getItem("skinritual-aikey")||"";
@@ -1525,6 +1549,66 @@ async function forceUpdate(){
 }
 
 /* ============================================================
+   Dopp Kit / travel mode — the kit is a VIEW of the shelf (trip.kit),
+   scoped app-wide via inStock(). No copy, no migration.
+   ============================================================ */
+let tripDraft = new Set();
+let tripNights = 3;
+function openTrip(){ if(!DB.trip){ tripDraft=new Set(); tripNights=3; } $("#tripModal").classList.add("on"); renderTripSheet(); }
+function closeTrip(){ $("#tripModal").classList.remove("on"); }
+function tripKitSet(){ return DB.trip ? new Set(DB.trip.kit) : tripDraft; }
+function renderTripSheet(){
+  const body=$("#tripBody"); if(!body) return;
+  const active=!!DB.trip;
+  const stock=DB.products.filter(p=>p.qty>0);
+  const kit=tripKitSet();
+  $("#tripTitle").textContent = active ? "Your Dopp kit" : "Pack your Dopp kit";
+  if(!stock.length){ body.innerHTML=`<div class="empty">Add products on the Shelf tab first.</div>`; return; }
+  let html = active
+    ? `<div class="amsub">✈️ ${DB.trip.nights}-night trip · ${kit.size} item${kit.size===1?"":"s"} packed. Tap to add/remove — rituals update live.</div>`
+    : `<div class="tripnights"><span>Nights</span><div class="qbtns"><button class="qbtn" data-n="-1">−</button><span id="tripN" class="qn">${tripNights}</span><button class="qbtn" data-n="1">+</button></div></div>
+       <div class="amsub">Pick what to pack — travel rituals build only from these.</div>`;
+  const byCat={}; stock.forEach(p=>{ (byCat[p.cat]=byCat[p.cat]||[]).push(p); });
+  Object.keys(byCat).sort((a,b)=>(STEP_OF[a]??9)-(STEP_OF[b]??9)).forEach(cat=>{
+    html+=`<div class="amcat" style="margin:14px 0 6px">${catInfo(cat).emoji} ${esc(catInfo(cat).label)}</div>`;
+    html+=byCat[cat].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>
+      `<button class="amitem ${kit.has(p.id)?"on":""}" data-kit="${p.id}"><span class="amadd">${kit.has(p.id)?"✓":"＋"}</span><div class="amn"><b>${esc(p.brand)}</b> · ${esc(p.name)}</div></button>`
+    ).join("");
+  });
+  html += active
+    ? `<button class="btn ghost" id="endTripBtn" style="margin-top:18px">End trip — back to full shelf</button>`
+    : `<button class="btn primary" id="startTripBtn" style="margin-top:18px">Start trip →</button>`;
+  body.innerHTML=html;
+  body.querySelectorAll("[data-n]").forEach(b=>b.onclick=()=>{ tripNights=Math.max(1,Math.min(60,tripNights+(+b.dataset.n))); $("#tripN").textContent=tripNights; });
+  body.querySelectorAll("[data-kit]").forEach(b=>b.onclick=()=>{
+    const id=+b.dataset.kit;
+    if(DB.trip){ const i=DB.trip.kit.indexOf(id); if(i>=0)DB.trip.kit.splice(i,1); else DB.trip.kit.push(id); save(); renderTripSheet(); refreshTrip(); renderShelf(); }
+    else { tripDraft.has(id)?tripDraft.delete(id):tripDraft.add(id); renderTripSheet(); }
+  });
+  if($("#startTripBtn")) $("#startTripBtn").onclick=startTrip;
+  if($("#endTripBtn")) $("#endTripBtn").onclick=endTrip;
+}
+function startTrip(){
+  if(!tripDraft.size){ toast("Pick at least one product to pack"); return; }
+  DB.trip={ start:Date.now(), nights:tripNights, bag:"carryon", kit:[...tripDraft], packed:[] };
+  save(); closeTrip(); refreshTrip(); toast("Trip started ✈️"); renderShelf();
+  if($("#view-ritual").classList.contains("on")) renderRitual();
+}
+function endTrip(){
+  if(!confirm("End trip? Your kit dissolves back into the full shelf — all history is kept.")) return;
+  DB.trip=null; save(); closeTrip(); refreshTrip(); toast("Trip ended"); renderShelf();
+  if($("#view-ritual").classList.contains("on")) renderRitual();
+}
+function refreshTrip(){
+  const chip=$("#tripChip"), btn=$("#tripBtn");
+  if(DB.trip){
+    const left=Math.max(0, DB.trip.nights - daysSince(DB.trip.start));
+    if(chip){ chip.style.display=""; chip.textContent=`✈️ ${left}n`; }
+    if(btn) btn.classList.add("on");
+  } else { if(chip) chip.style.display="none"; if(btn) btn.classList.remove("on"); }
+}
+
+/* ============================================================
    Navigation & init
    ============================================================ */
 function switchView(v){
@@ -1541,7 +1625,7 @@ function init(){
   load();
   $("#boot").style.display="none";
   if($("#appFoot")) $("#appFoot").textContent=`skinritual · ${APP_VERSION}`;
-  refreshStreak();
+  refreshStreak(); refreshTrip();
   renderChips(); renderShelf();
 
   $$("nav.tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
@@ -1565,6 +1649,9 @@ function init(){
   $("#addModal").onclick=e=>{ if(e.target.id==="addModal") closeAdd(); };
   $$("#capModes button").forEach(b=>b.onclick=()=>showCap(b.dataset.cap));
   $("#updBtn").onclick=forceUpdate;
+  $("#tripBtn").onclick=openTrip;
+  $("#closeTrip").onclick=closeTrip;
+  $("#tripModal").onclick=e=>{ if(e.target.id==="tripModal") closeTrip(); };
   $("#recap").onclick=e=>{ if(e.target.id==="recap") $("#recap").classList.remove("on"); };
 
   switchView("shelf");
