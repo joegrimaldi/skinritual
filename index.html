@@ -340,7 +340,10 @@
       <button data-scope="full"><span class="segt">Full facial</span><span class="segsub">33 min+</span></button>
     </div>
     <div class="togrow">
-      <button class="tog" id="shaveTog">🪒 Include shave</button>
+      <button class="tog" id="shaveTog">🪒 Shave</button>
+      <button class="tog" id="noseTog">👃 Nose wax</button>
+    </div>
+    <div class="togrow">
       <button class="tog" id="locTog" data-loc="sink">🚰 At the sink</button>
     </div>
     <div class="picklab">Include specific products <span>— tap to add (optional)</span></div>
@@ -393,7 +396,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v17";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v18";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -442,8 +445,10 @@ let DB = {ver:2, products:[], log:[]};
 let mode = "am";     // ritual mode
 let scope = "daily"; // 'quick' | 'daily' | 'full'
 let includeShave = false;
+let includeNoseWax = false;
 let ritualLoc = "sink"; // 'sink' | 'shower'
 let picks = new Set(); // product ids the user hand-picked to include
+const NOSE_WAX_DAYS = 21; // recommended minimum interval between nose waxes
 let filter = "All";  // shelf category filter
 let query = "";
 
@@ -493,6 +498,7 @@ const preferMedicube = (a,b)=>(a.brand==="Medicube"?-1:0)-(b.brand==="Medicube"?
 function buildRoutine(routineMode, opts={}){
   const scope = opts.scope || "daily";                 // 'quick' | 'daily' | 'full'
   const shave = !!opts.shave;
+  const noseWax = !!opts.noseWax;
   const loc   = opts.location === "shower" ? "shower" : "sink";
   const picks = new Set((opts.picks||[]).map(Number));
   const steps=[], skips=[], used=new Set();
@@ -503,9 +509,13 @@ function buildRoutine(routineMode, opts={}){
     const [v,h] = override || howtoFor(p);
     steps.push({p, verb:v, how:h, meta:meta||[]});
   };
-  const shaveStep = () => steps.push({ shave:true,
+  const shaveStep = () => steps.push({ shave:true, groom:true,
     verb:"🪒 Shave", how:"Electric/clipper shave — go with the grain, light pressure, then rinse away debris. Skip strong actives so freshly-shaved skin can recover.",
     meta:["grooming"], p:{id:-1, cat:"shave", brand:"", name:"Shave"} });
+  const noseWaxStep = () => steps.push({ noseWax:true, groom:true,
+    verb:"👃 Nose wax", how:"Warm the wax, coat the applicator, insert and hold ~90s, then remove. Only every ~3 weeks.",
+    meta:["grooming · every 3 wks"], p:{id:-2, cat:"groom", brand:"", name:"Nose wax"} });
+  if(noseWax) noseWaxStep();   // grooming first; no bearing on the skincare steps
 
   // scope → which optional steps turn on
   const SC = ({
@@ -609,7 +619,7 @@ function buildRoutine(routineMode, opts={}){
 function estimateMinutes(steps){
   let m=0;
   steps.forEach(s=>{
-    if(s.shave) m+=3;
+    if(s.groom) m+=3;
     else if(s.p.cat==="mask") m+=12;
     else if(s.p.cat==="sheet_mask") m+=18;
     else if(s.p.cat==="cleanser") m+=1.5;
@@ -775,15 +785,20 @@ function renderPickChips(){
   });
 }
 function renderRitual(){
-  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, location:ritualLoc, picks:[...picks]});
+  const {steps,skips}=buildRoutine(mode, {scope, shave:includeShave, noseWax:includeNoseWax, location:ritualLoc, picks:[...picks]});
   const out=$("#ritualOut");
   if(!steps.length){ out.innerHTML=`<div class="empty">Nothing in stock for this ritual. Add products on the Shelf tab.</div>`; return; }
   const mins=estimateMinutes(steps);
-  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""} · ${ritualLoc==="shower"?"🚿 shower":"🚰 sink"}</div>`;
+  let html = `<div class="ritualest">≈ ${mins} min · ${steps.length} step${steps.length===1?"":"s"}${includeShave?" · 🪒 shave":""}${includeNoseWax?" · 👃 nose wax":""} · ${ritualLoc==="shower"?"🚿 shower":"🚰 sink"}</div>`;
+  // nose-wax cadence guard (recommended every 3 weeks)
+  if(includeNoseWax){
+    const d=noseWaxDaysAgo();
+    if(d<NOSE_WAX_DAYS) html += `<div class="stepnote" style="background:rgba(185,138,62,.12);padding:10px 12px;border-radius:10px;margin-bottom:12px">⚠️ Last nose wax was ${d} day${d===1?"":"s"} ago — recommended every 3 weeks (${NOSE_WAX_DAYS-d} to go).</div>`;
+  }
   html += steps.map(s=>{
-    const metaItems = s.shave ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
+    const metaItems = s.groom ? s.meta : [catInfo(s.p.cat).label, ...s.meta];
     const meta = metaItems.map(m=>`<span>${esc(m)}</span>`).join("");
-    const who = s.shave ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
+    const who = s.groom ? `<span style="color:var(--accent);font-weight:600">Grooming step</span>` : `<b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}`;
     return `<div class="step">
       <div class="stepn">${s.n}</div>
       <div style="flex:1;min-width:0">
@@ -806,26 +821,30 @@ function renderRitual(){
     ).join("") + `</div>`;
   }
 
-  const ids=steps.filter(s=>!s.shave).map(s=>s.p.id);
-  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${includeShave?" + shave":""}</button>`;
+  const ids=steps.filter(s=>s.p.id>0).map(s=>s.p.id);
+  const extra=[includeShave?"shave":"", includeNoseWax?"nose wax":""].filter(Boolean).join(" + ");
+  html += `<button class="btn ghost" id="logBtn" style="margin-top:16px">✓ Log this ${mode==="am"?"morning":"evening"}${extra?" + "+extra:""}</button>`;
   out.innerHTML=html;
-  $("#logBtn").onclick=()=>logRoutine(ids, includeShave);
+  $("#logBtn").onclick=()=>logRoutine(ids, includeShave, includeNoseWax);
 }
-function logRoutine(ids, shave){
+function logRoutine(ids, shave, noseWax){
   const now=Date.now();
-  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave});
+  DB.log.push({ts:now, mode, products:ids.slice(), shave:!!shave, noseWax:!!noseWax});
   ids.forEach(id=>{ const p=DB.products.find(x=>x.id===id); if(p) p.lastUsed=now; });
-  save(); buzz(15); refreshStreak(); showRecap(ids, shave);
+  save(); buzz(15); refreshStreak(); showRecap(ids, shave, noseWax);
 }
+function lastNoseWaxTs(){ const e=DB.log.filter(x=>x.noseWax).sort((a,b)=>b.ts-a.ts)[0]; return e?e.ts:null; }
+function noseWaxDaysAgo(){ const t=lastNoseWaxTs(); return t?daysSince(t):Infinity; }
 
 /* ============================================================
    Recap
    ============================================================ */
-function showRecap(ids, shave){
+function showRecap(ids, shave, noseWax){
   const n=currentStreak();
   const week=DB.log.filter(e=>e.products && e.products.length && (Date.now()-e.ts)<7*DAY).length;
   const stepList=ids.map(id=>{ const p=meta(id); return `<div class="s"><b>·</b> ${esc(p.brand)} — ${esc(p.name)}</div>`; }).join("")
-    + (shave?`<div class="s"><b>·</b> 🪒 Shave</div>`:"");
+    + (shave?`<div class="s"><b>·</b> 🪒 Shave</div>`:"")
+    + (noseWax?`<div class="s"><b>·</b> 👃 Nose wax</div>`:"");
   $("#recapCard").innerHTML=`
     <div class="fire">${n>0?"🔥":"✨"}</div>
     <div class="rtitle">Ritual complete</div>
@@ -855,6 +874,14 @@ function renderRhythm(){
     ? (()=>{ const d=daysSince(shaves[0].ts); return d===0?"today":d===1?"yesterday":`${d} days ago`; })()
     : "not yet logged";
   const shaveWeek=shaves.filter(e=>(Date.now()-e.ts)<7*DAY).length;
+
+  // grooming: nose wax (metered every 3 weeks)
+  const nwAgo=noseWaxDaysAgo();
+  const nwTxt = nwAgo===Infinity ? "not yet logged" : nwAgo===0?"today":nwAgo===1?"yesterday":`${nwAgo} days ago`;
+  const nwReady = nwAgo>=NOSE_WAX_DAYS;
+  const nwPill = nwAgo===Infinity ? "" : nwReady
+    ? `<span class="statuspill ready">Ready</span>`
+    : `<span class="statuspill wait">In ${NOSE_WAX_DAYS-nwAgo}d</span>`;
 
   // active scheduling status
   const actives=inStock(p=>p.active);
@@ -889,17 +916,28 @@ function renderRhythm(){
       <div style="font-size:14px">You've logged <b>${week}</b> ritual${week===1?"":"s"} in the last 7 days.</div>
     </div>
     <div class="panel"><h3>Grooming</h3>
-      <div style="font-size:14px;margin-bottom:12px">🪒 Last shave: <b>${esc(lastShaveTxt)}</b>${shaveWeek?` · ${shaveWeek} this week`:""}</div>
-      <button class="btn ghost" id="logShaveBtn">🪒 Log a shave now</button>
+      <div style="font-size:14px;margin-bottom:10px">🪒 Last shave: <b>${esc(lastShaveTxt)}</b>${shaveWeek?` · ${shaveWeek} this week`:""}</div>
+      <button class="btn ghost" id="logShaveBtn" style="margin-bottom:16px">🪒 Log a shave now</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px;margin-bottom:10px">
+        <span>👃 Last nose wax: <b>${esc(nwTxt)}</b></span>${nwPill}
+      </div>
+      <button class="btn ghost" id="logNoseBtn">👃 Log a nose wax</button>
     </div>
     <div class="panel" id="calWrap"></div>`;
   $("#logShaveBtn").onclick=logShaveNow;
+  $("#logNoseBtn").onclick=logNoseWaxNow;
   renderCalendar();
 }
 function logShaveNow(){
   const now=Date.now();
   DB.log.push({ts:now, mode:(new Date().getHours()<12?"am":"pm"), products:[], shave:true});
   save(); buzz(15); toast("Shave logged 🪒"); renderRhythm();
+}
+function logNoseWaxNow(){
+  const d=noseWaxDaysAgo();
+  if(d<NOSE_WAX_DAYS && !confirm(`Last nose wax was ${d} day${d===1?"":"s"} ago. Recommended no more than once every 3 weeks — log it anyway?`)) return;
+  DB.log.push({ts:Date.now(), mode:(new Date().getHours()<12?"am":"pm"), products:[], noseWax:true});
+  save(); buzz(15); toast("Nose wax logged 👃"); renderRhythm();
 }
 
 /* Calendar of logged rituals — tap a day to see what was used. */
@@ -925,7 +963,7 @@ function renderCalendar(){
     const entries=byDay[dk]||[];
     const hasAM=entries.some(e=>e.mode==="am" && e.products && e.products.length);
     const hasPM=entries.some(e=>e.mode==="pm" && e.products && e.products.length);
-    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"");
+    const mk=(hasAM?"☀️":"")+(hasPM?"🌙":"")+(entries.some(e=>e.shave)?"🪒":"")+(entries.some(e=>e.noseWax)?"👃":"");
     const cls=["calday"];
     if(entries.length) cls.push("has");
     if(dk===todayKey) cls.push("today");
@@ -941,9 +979,12 @@ function renderCalendar(){
     detail=`<div class="caldetail"><div class="cd-date">${esc(dateLabel)}</div>`+
       (entries.length ? entries.map(e=>{
         const t=new Date(e.ts).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
-        if(e.shave && !(e.products && e.products.length))
-          return `<div class="cd-entry"><div class="cd-mode">🪒 Shave · ${esc(t)}</div></div>`;
-        const head=(e.shave?"🪒 ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
+        const hasProds = e.products && e.products.length;
+        if(!hasProds){
+          const g=[e.shave?"🪒 Shave":"", e.noseWax?"👃 Nose wax":""].filter(Boolean).join(" + ") || "Logged";
+          return `<div class="cd-entry"><div class="cd-mode">${esc(g)} · ${esc(t)}</div></div>`;
+        }
+        const head=(e.shave?"🪒 ":"")+(e.noseWax?"👃 ":"")+(e.mode==="am"?"☀️ Morning":"🌙 Evening")+" · "+t;
         const prods=(e.products||[]).map(id=>{const p=meta(id);return `<li>${esc(p.brand)} · ${esc(p.name)}</li>`;}).join("");
         return `<div class="cd-entry"><div class="cd-mode">${esc(head)}</div><ul>${prods}</ul></div>`;
       }).join("") : `<div class="cd-none">Nothing logged this day.</div>`)+`</div>`;
@@ -1360,6 +1401,7 @@ function init(){
     liveRitual();
   });
   $("#shaveTog").onclick=()=>{ includeShave=!includeShave; $("#shaveTog").classList.toggle("on",includeShave); liveRitual(); };
+  $("#noseTog").onclick=()=>{ includeNoseWax=!includeNoseWax; $("#noseTog").classList.toggle("on",includeNoseWax); liveRitual(); };
   $("#locTog").onclick=()=>{
     ritualLoc = ritualLoc==="sink" ? "shower" : "sink";
     const t=$("#locTog"); t.dataset.loc=ritualLoc;
