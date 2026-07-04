@@ -211,6 +211,15 @@
   .cd-entry li{font-size:13px;line-height:1.5}
   .cd-none{font-size:13px;color:var(--muted)}
 
+  /* ---------- AI result card ---------- */
+  .airow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .airow .ak{color:var(--muted);font-weight:600;flex:none}
+  .airow .av{text-align:right}
+  .aihow{padding:10px 0;border-top:1px solid var(--line);font-size:13.5px;line-height:1.45}
+  .aihow .ak{display:block;color:var(--muted);font-weight:600;margin-bottom:3px}
+  .ainote{margin-top:10px;background:rgba(185,138,62,.12);color:#8a6516;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.4}
+  .stepnote{font-size:12px;color:var(--warn);margin-top:6px;line-height:1.4;font-weight:600}
+
   /* ---------- FAB ---------- */
   .fab{position:fixed;right:calc(var(--gutter) + max(0px, (100vw - 640px)/2));
     bottom:calc(92px + env(safe-area-inset-bottom));z-index:45;
@@ -365,7 +374,7 @@
 const $  = (s,r=document)=>r.querySelector(s);
 const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
 const DAY = 86400000;
-const APP_VERSION = "v12";               // shown in footer; keep in sync with sw.js CACHE
+const APP_VERSION = "v13";               // shown in footer; keep in sync with sw.js CACHE
 const KEY = "skinritual-v2";            // storage key — DO NOT change (would wipe shelves)
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -405,7 +414,7 @@ const CAT_HOWTO = {
   mask:["Mask","Apply an even layer, leave on, then rinse."],
   sheet_mask:["Sheet mask","Lay onto clean skin 15–20 min, then pat in the essence."],
 };
-const howtoFor = p => CAT_HOWTO[p.cat] || [catInfo(p.cat).label,"Apply as directed."];
+const howtoFor = p => (p.verb && p.how) ? [p.verb, p.how] : (CAT_HOWTO[p.cat] || [catInfo(p.cat).label,"Apply as directed."]);
 
 /* ============================================================
    State
@@ -681,6 +690,7 @@ function renderRitual(){
         <div class="verb">${esc(s.verb)}</div>
         <div class="who"><b>${esc(s.p.brand)}</b> · ${esc(s.p.name)}</div>
         <div class="how">${esc(s.how)}</div>
+        ${s.p.note?`<div class="stepnote">⚠️ ${esc(s.p.note)}</div>`:""}
         <div class="metarow">${meta}</div>
       </div>
     </div>`;
@@ -1074,6 +1084,74 @@ function captureAIFrame(){
 function whenFor(cat){ if(cat==="sunscreen")return "am"; if(["night_cream","retinol","exfoliant","spot","mask","sheet_mask"].includes(cat))return "pm"; return "both"; }
 function freqFor(cat){ return ({retinol:"3-4x/week",exfoliant:"2-3x/week",mask:"Weekly",sheet_mask:"As desired",spot:"As needed"})[cat]||"Daily"; }
 function fileToB64(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(f);});}
+
+const AI_PROMPT = `You are a skincare expert helping someone who does NOT know how to use their products. Identify this product from the photo, then — using the label's directions PLUS general dermatology knowledge — determine exactly how it should be used and how it interacts with other actives. Respond with ONLY a JSON object, no prose:
+{
+ "name": string,
+ "brand": string,
+ "cat": one of "cleanser","toner","serum","eye_cream","moisturizer","night_cream","sunscreen","exfoliant","spot","mask","sheet_mask","retinol",
+ "am": boolean,           // use in the morning?
+ "pm": boolean,           // use in the evening?
+ "freq": one of "Daily","Twice daily","2-3x/week","3-4x/week","Weekly","As needed","As desired",
+ "active": boolean,       // true for retinoids / AHAs / BHAs / strong exfoliants that must be spaced out
+ "cooldownDays": number,  // minimum days between uses (0 if safe to use daily)
+ "maxPerWeek": number,    // max uses per 7 days (0 = no limit)
+ "verb": string,          // 1-2 word action label, e.g. "Retinol","Cleanse","Hydrate","SPF"
+ "how": string,           // one concise sentence on how to apply it correctly
+ "note": string           // short caution about combining/timing with other actives, else ""
+}`;
+
+// Coerce the AI JSON into a safe, complete product profile.
+function normalizeProfile(p){
+  const FREQS=["Daily","Twice daily","2-3x/week","3-4x/week","Weekly","As needed","As desired"];
+  const cat = CATS[p.cat] ? p.cat : (guessCat((p.name||"")+" "+(p.cat||"")) || "serum");
+  const active = !!p.active || cat==="retinol" || cat==="exfoliant";
+  let am=p.am, pm=p.pm;
+  if(am===undefined && pm===undefined){ const w=whenFor(cat); am=(w!=="pm"); pm=(w!=="am"); }
+  am=!!am; pm=!!pm; if(!am && !pm) pm=true;
+  const freq = FREQS.includes(p.freq) ? p.freq : freqFor(cat);
+  const cd  = Number.isFinite(p.cooldownDays) ? Math.max(0,Math.round(p.cooldownDays)) : (active?2:0);
+  const max = Number.isFinite(p.maxPerWeek)   ? Math.max(0,Math.round(p.maxPerWeek))   : (active?(cat==="retinol"?4:3):0);
+  return {
+    name:(p.name||"").trim()||"Product", brand:(p.brand||"").trim()||"—",
+    cat, am:am?1:0, pm:pm?1:0, freq, active:active?1:0,
+    cd, max, step:STEP_OF[cat]??3,
+    verb:(p.verb||"").trim(), how:(p.how||"").trim(), note:(p.note||"").trim(),
+    hydra:(cat==="serum"&&!active)?1:0,
+  };
+}
+// Show what the AI figured out, then let the user confirm or tweak.
+function showAIResult(pr){
+  const ci=catInfo(pr.cat);
+  const whenTags=[pr.am?"☀️ Morning":"", pr.pm?"🌙 Evening":""].filter(Boolean).join(" · ")||"—";
+  const sched=[pr.freq];
+  if(pr.active && pr.max) sched.push(`max ${pr.max}×/week`);
+  if(pr.active && pr.cd)  sched.push(`${pr.cd}-day gap`);
+  $("#capBody").innerHTML=`
+    <div class="brand">${esc(pr.brand)}</div>
+    <div class="pname" style="margin-bottom:10px">${esc(pr.name)}</div>
+    <div class="tagrow" style="margin-bottom:6px">
+      <span class="pill" style="background:${ci.pill}">${esc(ci.label)}</span>
+      ${pr.active?`<span class="tg">active</span>`:""}
+    </div>
+    <div class="airow"><span class="ak">When</span><span class="av">${esc(whenTags)}</span></div>
+    <div class="airow"><span class="ak">How often</span><span class="av">${esc(sched.join(" · "))}</span></div>
+    <div class="aihow"><span class="ak">How to use</span><div>${esc(pr.how || howtoFor(pr)[1])}</div></div>
+    ${pr.note?`<div class="ainote">⚠️ ${esc(pr.note)}</div>`:""}
+    <button class="btn primary" id="aiAdd" style="margin-top:16px">Add to My Shelf →</button>
+    <button class="btn ghost" id="aiEdit" style="margin-top:8px">Edit details</button>
+    <button class="btn ghost" id="aiRetake" style="margin-top:8px">Retake photo</button>`;
+  $("#aiAdd").onclick=()=>addFromProfile(pr);
+  $("#aiEdit").onclick=()=>{ if($("#capModes")) $("#capModes").style.display=""; capManual(productToPref(pr)); };
+  $("#aiRetake").onclick=()=>capAI();
+}
+function addFromProfile(pr){
+  const id=Math.max(0,...DB.products.map(p=>p.id),0)+1;
+  DB.products.push({id, name:pr.name, brand:pr.brand, cat:pr.cat, am:pr.am, pm:pr.pm, freq:pr.freq,
+    step:pr.step, cd:pr.cd, max:pr.max, active:pr.active, hydra:pr.hydra,
+    verb:pr.verb, how:pr.how, note:pr.note, qty:1, lastUsed:null});
+  save(); toast(`Added ${pr.name}`); closeAdd(); renderChips(); renderShelf(); fillAnchor();
+}
 async function runAI(file){
   const key=localStorage.getItem("skinritual-aikey")||"";
   const out=$("#aiOut"), prev=$("#aiPreview");
@@ -1085,10 +1163,10 @@ async function runAI(file){
     const b64=await fileToB64(file);
     const mime=file.type||"image/jpeg";
     const body={
-      model:"claude-sonnet-5", max_tokens:400,
+      model:"claude-sonnet-5", max_tokens:700,
       messages:[{role:"user",content:[
         {type:"image",source:{type:"base64",media_type:mime,data:b64}},
-        {type:"text",text:'Identify this skincare product. Respond ONLY with JSON: {"name":"","brand":"","cat":"one of cleanser|toner|serum|eye_cream|moisturizer|night_cream|sunscreen|exfoliant|spot|mask|sheet_mask|retinol","active":true|false}. No prose.'}
+        {type:"text",text:AI_PROMPT}
       ]}]
     };
     const r=await fetch("https://api.anthropic.com/v1/messages",{
@@ -1101,16 +1179,8 @@ async function runAI(file){
     const m=text.replace(/```json|```/g,"").match(/\{[\s\S]*\}/);
     if(!m) throw new Error("no json");
     const p=JSON.parse(m[0]);
-    showCap("manual");
-    if($("#mName")) $("#mName").value=p.name||"";
-    if($("#mBrand")) $("#mBrand").value=p.brand||"";
-    if(p.cat && CATS[p.cat] && $("#mCat")){ $("#mCat").value=p.cat;
-      if($("#mWhen")) $("#mWhen").value=whenFor(p.cat);
-      if($("#mFreq")) $("#mFreq").value=freqFor(p.cat);
-    }
-    if((p.active || p.cat==="retinol" || p.cat==="exfoliant") && $("#mActive")) $("#mActive").checked=true;
-    if(!p.name && !p.brand){ throw new Error("blank"); }
-    toast("Got it — review & save");
+    if(!p.name && !p.brand) throw new Error("blank");
+    showAIResult(normalizeProfile(p));
   }catch(e){
     if(prev) prev.innerHTML="";
     if(out) out.innerHTML=`Couldn't read that clearly. <a href="#" id="aiRetry">Try another photo →</a> · <a href="#" id="aiToManual">Enter manually →</a>`;
